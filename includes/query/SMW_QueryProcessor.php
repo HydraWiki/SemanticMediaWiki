@@ -293,7 +293,7 @@ class SMWQueryProcessor implements QueryContext {
 				// #1645
 				$parts = $showMode && $name == 0 ? $rawParam : explode( '=', $rawParam, 2 );
 
-				if ( count( $parts ) >= 2 ) {
+				if ( count( (array)$parts ) >= 2 ) {
 					// don't trim here, some parameters care for " "
 					// #3196 Ensure to decode `-3D` from encodeEq to
 					// support things like `|intro=[[File:Foo.png|link=Bar]]`
