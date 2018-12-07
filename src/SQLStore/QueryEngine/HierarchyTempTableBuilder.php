@@ -181,7 +181,7 @@ class HierarchyTempTableBuilder {
 
 			// empty "new" table
 			$db->query(
-				'TRUNCATE TABLE ' . $tmpnew,
+				'DELETE FROM ' . $tmpnew,
 				__METHOD__
 			);
 
