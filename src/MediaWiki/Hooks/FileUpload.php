@@ -66,9 +66,13 @@ class FileUpload {
 		$applicationFactory = ApplicationFactory::getInstance();
 		$filePage = $this->makeFilePage();
 
+		// Avoid WikiPage.php: The supplied ParserOptions are not safe to cache.
+		// Fix the options or set $forceParse = true.
+		$forceParse = true;
+
 		$parserData = $applicationFactory->newParserData(
 			$this->file->getTitle(),
-			$filePage->getParserOutput( $this->makeCanonicalParserOptions() )
+			$filePage->getParserOutput( $this->makeCanonicalParserOptions(), null, $forceParse )
 		);
 
 		$pageInfoProvider = $applicationFactory->newMwCollaboratorFactory()->newPageInfoProvider(
