@@ -73,9 +73,6 @@
 			"SMW\\": "src/",
 			"SMW\\Maintenance\\": "maintenance/"
 		},
-		"files" : [
-			"SemanticMediaWiki.php"
-		],
 		"classmap" : [
 			"includes/"
 		]
