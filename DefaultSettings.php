@@ -92,11 +92,11 @@ return array(
 	##
 	'smwgLocalConnectionConf' => array(
 		'mw.db' => array(
-			'read'  => DB_SLAVE,
+			'read'  => DB_MASTER,
 			'write' => DB_MASTER
 		),
 		'mw.db.queryengine' => array(
-			'read'  => DB_SLAVE,
+			'read'  => DB_MASTER,
 			'write' => DB_MASTER
 		)
 	),
