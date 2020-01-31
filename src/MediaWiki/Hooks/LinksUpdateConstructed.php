@@ -2,24 +2,28 @@
 
 namespace SMW\MediaWiki\Hooks;
 
-use Hooks;
 use LinksUpdate;
 use SMW\ApplicationFactory;
-use SMW\SemanticData;
+use SMW\MediaWiki\RevisionGuardAwareTrait;
 use SMW\NamespaceExaminer;
-use Title;
+use SMW\SemanticData;
+use SMW\MediaWiki\HookListener;
+use Psr\Log\LoggerAwareTrait;
 
 /**
  * LinksUpdateConstructed hook is called at the end of LinksUpdate()
  *
- * @see http://www.mediawiki.org/wiki/Manual:Hooks/LinksUpdateConstructed
+ * @see https://www.mediawiki.org/wiki/Manual:Hooks/LinksUpdateConstructed
  *
  * @license GNU GPL v2+
  * @since 1.9
  *
  * @author mwjames
  */
-class LinksUpdateConstructed extends HookHandler {
+class LinksUpdateConstructed implements HookListener {
+
+	use RevisionGuardAwareTrait;
+	use LoggerAwareTrait;
 
 	/**
 	 * @var NamespaceExaminer
@@ -34,7 +38,7 @@ class LinksUpdateConstructed extends HookHandler {
 	/**
 	 * @var boolean
 	 */
-	private $isReadOnly = false;
+	private $isReady = true;
 
 	/**
 	 * @since 3.0
@@ -48,10 +52,10 @@ class LinksUpdateConstructed extends HookHandler {
 	/**
 	 * @since 3.0
 	 *
-	 * @param boolean $isReadOnly
+	 * @param boolean $isReady
 	 */
-	public function isReadOnly( $isReadOnly ) {
-		$this->isReadOnly = (bool)$isReadOnly;
+	public function isReady( $isReady ) {
+		$this->isReady = (bool)$isReady;
 	}
 
 	/**
@@ -70,23 +74,16 @@ class LinksUpdateConstructed extends HookHandler {
 	 */
 	public function process( LinksUpdate $linksUpdate ) {
 
-		if ( $this->isReadOnly ) {
-			return false;
+		if ( $this->isReady === false ) {
+			return $this->doAbort();
 		}
 
 		$title = $linksUpdate->getTitle();
-		$latestRevID = $title->getLatestRevID( Title::GAID_FOR_UPDATE );
 
-		$opts = [ 'defer' => $this->enabledDeferredUpdate ];
-
-		// Allow any third-party extension to suppress the update process
-		if ( \Hooks::run( 'SMW::LinksUpdate::ApprovedUpdate', [ $title, $latestRevID ] ) === false ) {
+		if ( $this->revisionGuard->isSkippableUpdate( $title ) ) {
 			return true;
 		}
 
-		/**
-		 * @var ParserData $parserData
-		 */
 		$parserData = ApplicationFactory::getInstance()->newParserData(
 			$title,
 			$linksUpdate->getParserOutput()
@@ -100,6 +97,8 @@ class LinksUpdateConstructed extends HookHandler {
 				$this->updateSemanticData( $parserData, $title, 'empty data' );
 			}
 		}
+
+		$opts = [ 'defer' => $this->enabledDeferredUpdate ];
 
 		// Push updates on properties directly without delay
 		if ( $title->getNamespace() === SMW_NS_PROPERTY ) {
@@ -120,12 +119,6 @@ class LinksUpdateConstructed extends HookHandler {
 		$parserData->setOrigin( 'LinksUpdateConstructed' );
 		$parserData->updateStore( $opts );
 
-		// Track the update on per revision because MW 1.29 made the LinksUpdate a
-		// EnqueueableDataUpdate which creates updates as JobSpecification
-		// (refreshLinksPrioritized) and posses a possibility of running an
-		// update more than once for the same RevID
-		$parserData->markUpdate( $latestRevID );
-
 		return true;
 	}
 
@@ -139,7 +132,7 @@ class LinksUpdateConstructed extends HookHandler {
 	 */
 	private function updateSemanticData( &$parserData, $title, $reason = '' ) {
 
-		$this->log(
+		$this->logger->info(
 			[
 				'LinksUpdateConstructed',
 				"Required content re-parse due to $reason",
@@ -168,6 +161,15 @@ class LinksUpdateConstructed extends HookHandler {
 		}
 
 		return $parserOutput->mSMWData;
+	}
+
+	private function doAbort() {
+
+		$this->logger->info(
+			"LinksUpdateConstructed was invoked but the site isn't ready yet, aborting the processing."
+		);
+
+		return false;
 	}
 
 }

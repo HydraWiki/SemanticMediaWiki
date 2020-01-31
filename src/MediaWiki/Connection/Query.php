@@ -121,7 +121,7 @@ class Query {
 	 */
 	public function hasField( $field = '' ) {
 
-		if ( $field === '' ) {
+		if ( (string)$field === '' ) {
 			return $this->fields !== [];
 		}
 
@@ -145,7 +145,14 @@ class Query {
 	 * @param string $table
 	 */
 	public function table( ...$table ) {
-		$this->table = $this->connection->tableName( $table[0] ) . ( isset( $table[1] ) ? " AS " . $table[1] : '' );
+
+		if ( strpos( $table[0], 'SELECT') !== false ) {
+			$tableName = '(' . $table[0] . ')';
+		} else {
+			$tableName = $this->connection->tableName( $table[0] );
+		}
+
+		$this->table = $tableName . ( isset( $table[1] ) ? " AS " . $table[1] : '' );
 	}
 
 	/**
@@ -166,7 +173,7 @@ class Query {
 			foreach ( $join[1] as $table => $value ) {
 
 				if ( is_string( $table ) ) {
-					$value = $value{0} . $value{1} === 'ON' ? "$value" : "AS $value";
+					$value = $value[0] . $value[1] === 'ON' ? "$value" : "AS $value";
 					$value = $this->connection->tableName( $table ) . " $value";
 				}
 
@@ -189,6 +196,18 @@ class Query {
 	 */
 	public function like( $k, $v ) {
 		return "$k LIKE " . $this->connection->addQuotes( $v );
+	}
+
+	/**
+	 * @since 3.1
+	 *
+	 * @param string $k
+	 * @param array $v
+	 *
+	 * @return string
+	 */
+	public function in( $k, array $v ) {
+		return "$k IN (" . $this->connection->makeList( $v ) . ')';
 	}
 
 	/**
@@ -248,6 +267,10 @@ class Query {
 	 */
 	public function condition( $condition ) {
 
+		if ( $condition === '' ) {
+			return;
+		}
+
 		if ( is_string( $condition ) ) {
 			$condition = [ $condition ];
 		}
@@ -262,6 +285,20 @@ class Query {
 	 */
 	public function options( array $options ) {
 		$this->options = $options;
+	}
+
+	/**
+	 * @since 3.1
+	 *
+	 * @param string $key
+	 * @param string $value
+	 */
+	public function option( $key, $value ) {
+		if ( $value === null ) {
+			unset( $this->options[$key] );
+		} else {
+			$this->options[$key] = $value;
+		}
 	}
 
 	/**
@@ -283,6 +320,15 @@ class Query {
 		];
 
 		return json_encode( $params );
+	}
+
+	/**
+	 * @since 3.1
+	 *
+	 * @return string
+	 */
+	public function getSQL() {
+		return $this->sql();
 	}
 
 	/**

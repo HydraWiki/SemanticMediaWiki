@@ -50,10 +50,9 @@ class ElasticClientTaskHandlerTest extends \PHPUnit_Framework_TestCase {
 
 	public function testIsTask() {
 
-		$task = $this->getMockBuilder( '\SMW\MediaWiki\Specials\Admin\TaskHandler' )
+		$task = $this->getMockBuilder( '\SMW\MediaWiki\Specials\Admin\ActionableTask' )
 			->disableOriginalConstructor()
-			->setMethods( [ 'getTask' ] )
-			->getMockForAbstractClass();
+			->getMock();
 
 		$task->expects( $this->once() )
 			->method( 'getTask' )
@@ -68,22 +67,6 @@ class ElasticClientTaskHandlerTest extends \PHPUnit_Framework_TestCase {
 
 		$this->assertTrue(
 			$instance->isTaskFor( 'Foo' )
-		);
-	}
-
-	public function testGetHtml_OnNoAvailableNodes() {
-
-		$this->outputFormatter->expects( $this->never() )
-			->method( 'createSpecialPageLink' );
-
-		$instance = new ElasticClientTaskHandler(
-			$this->outputFormatter
-		);
-
-		$instance->setStore( $this->store );
-
-		$this->assertEmpty(
-			$instance->getHtml()
 		);
 	}
 

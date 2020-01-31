@@ -16,6 +16,11 @@ class PHPUnitEnvironment {
 	private $gitHead = [];
 
 	/**
+	 * @var int
+	 */
+	private $firstColumnWidth = SMW_PHPUNIT_FIRST_COLUMN_WIDTH;
+
+	/**
 	 * @param array $args
 	 *
 	 * @return boolean
@@ -49,6 +54,18 @@ class PHPUnitEnvironment {
 	}
 
 	/**
+	 * @return boolean|string
+	 */
+	public function getIntlInfo() {
+
+		if ( extension_loaded( 'intl' ) ) {
+			return phpversion( 'intl' ) . ' / ' . INTL_ICU_VERSION;
+		}
+
+		return false;
+	}
+
+	/**
 	 * @return string
 	 */
 	public function getSiteLanguageCode() {
@@ -72,23 +89,34 @@ class PHPUnitEnvironment {
 
 		$info = [];
 
+		try {
+			$store_info = json_encode( smwfGetStore()->getInfo(), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+		} catch( \Wikimedia\Rdbms\DBConnectionError $e ) {
+			$store_info = 'No connection';
+		}
+
 		if ( $id === 'smw' ) {
+			$info = [
+				SMW_VERSION,
+				'git: ' . $this->getGitInfo( 'smw' )
+			] + $extra;
+		}
+
+		if ( $id === 'store' ) {
 			$store = str_replace(
 				[ '{', '}', '"', '(SMW', ':(', '))', ',' ],
 				[ '(', ')', '', 'SMW', ' (', ')', ', ' ],
-				json_encode( smwfGetStore()->getInfo(), JSON_UNESCAPED_SLASHES )
+				$store_info
 			);
 
 			$info = [
-				SemanticMediaWiki::getVersion(),
-				'git: ' . $this->getGitInfo( 'smw' ),
 				$store
 			] + $extra;
 		}
 
 		if ( $id === 'mw' ) {
 			$info = [
-				$GLOBALS['wgVersion'],
+				MW_VERSION,
 				'git: ' . $this->getGitInfo( 'mw' )
 			] + $extra;
 		}
@@ -113,6 +141,19 @@ class PHPUnitEnvironment {
 
 			if ( $this->gitHead['mw'] ) {
 				$this->gitHead['mw'] = substr( $this->gitHead['mw'], 0, 7 );
+			} elseif ( $this->command_exists( 'git' ) ) {
+				// The download of a zip package will not provide any git sha1
+				// reference therefore try to fetch it from github; `MW` is
+				// exported by the Travis-CI environment to point to the selected
+				// release/branch
+				$refs = ( $env = getenv( 'MW' ) ) ? "refs/heads/$env" : "refs/tags/" . MW_VERSION;
+				$output = null;
+
+				if ( defined( 'SMW_PHPUNIT_PULL_VERSION_FROM_GITHUB' ) && SMW_PHPUNIT_PULL_VERSION_FROM_GITHUB ) {
+					exec( "git ls-remote https://github.com/wikimedia/mediawiki $refs", $output );
+				}
+
+				$this->gitHead['mw'] = isset( $output[0] ) ? substr( $output[0], 0, 7 ) . " ($refs)"  : 'n/a';
 			} else {
 				$this->gitHead['mw'] = 'N/A';
 			}
@@ -137,7 +178,7 @@ class PHPUnitEnvironment {
 	 * @return string
 	 */
 	public function writeLn( $arg1, $arg2 ) {
-		return print sprintf( "%-20s%s\n", $arg1, $arg2 );
+		return print sprintf( "%-{$this->firstColumnWidth}s%s\n", $arg1, $arg2 );
 	}
 
 	/**
@@ -152,7 +193,32 @@ class PHPUnitEnvironment {
 			return print "\n";
 		}
 
-		return print sprintf( "\n%-20s%s\n", $arg1, $arg2 );
+		return print sprintf( "\n%-{$this->firstColumnWidth}s%s\n", $arg1, $arg2 );
+	}
+
+	private function command_exists( $command ) {
+		$isWin = strtolower( substr( PHP_OS, 0, 3 ) ) === 'win';
+
+		$spec = [
+			[ "pipe", "r" ],
+			[ "pipe", "w" ],
+			[ "pipe", "w" ]
+		];
+
+		$proc = proc_open( ( $isWin ? 'where' : 'which' ) . " $command", $spec, $pipes );
+
+		if ( is_resource( $proc ) ) {
+			$stdout = stream_get_contents( $pipes[1] );
+			$stderr = stream_get_contents( $pipes[2] );
+
+			fclose( $pipes[1] );
+			fclose( $pipes[2] );
+
+			proc_close( $proc );
+			return $stdout != '';
+		}
+
+		return false;
 	}
 
 }

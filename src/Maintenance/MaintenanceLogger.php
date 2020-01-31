@@ -50,6 +50,29 @@ class MaintenanceLogger {
 	}
 
 	/**
+	 * @since 3.1
+	 *
+	 * @param array $message
+	 * @param string $target
+	 */
+	public function logFromArray( array $message, $target = '' ) {
+
+		if ( isset( $message['Options'] ) ) {
+			unset( $message['Options']['with-maintenance-log'] );
+			unset( $message['Options']['memory-limit'] );
+			unset( $message['Options']['profiler'] );
+			unset( $message['Options']['conf'] );
+
+			// If it is null then removed it.
+			if ( !isset( $message['Options']['auto-recovery'] ) ) {
+				unset( $message['Options']['auto-recovery'] );
+			}
+		}
+
+		$this->log( json_encode( $message ), $target );
+	}
+
+	/**
 	 * @since 2.4
 	 *
 	 * @param string $message

@@ -20,6 +20,8 @@ class TitleMoveCompleteTest extends \PHPUnit_Framework_TestCase {
 
 	private $user;
 	private $testEnvironment;
+	private $namespaceExaminer;
+	private $eventDispatcher;
 
 	protected function setUp() {
 		parent::setUp();
@@ -28,7 +30,7 @@ class TitleMoveCompleteTest extends \PHPUnit_Framework_TestCase {
 		$this->user = new MockSuperUser();
 
 		$settings = [
-			'smwgMainCacheType'             => 'hash',
+			'smwgMainCacheType' => 'hash',
 			'smwgAutoRefreshOnPageMove' => true,
 			'smwgNamespacesWithSemanticLinks' => [ NS_MAIN => true, NS_HELP => false ]
 		];
@@ -36,6 +38,14 @@ class TitleMoveCompleteTest extends \PHPUnit_Framework_TestCase {
 		$this->testEnvironment->withConfiguration(
 			$settings
 		);
+
+		$this->namespaceExaminer = $this->getMockBuilder( '\SMW\NamespaceExaminer' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$this->eventDispatcher = $this->getMockBuilder( '\Onoi\EventDispatcher\EventDispatcher' )
+			->disableOriginalConstructor()
+			->getMock();
 	}
 
 	protected function tearDown() {
@@ -45,24 +55,21 @@ class TitleMoveCompleteTest extends \PHPUnit_Framework_TestCase {
 
 	public function testCanConstruct() {
 
-		$oldTitle = MockTitle::buildMock( 'old' );
-		$newTitle =	MockTitle::buildMock( 'new' );
-
-		$instance = new TitleMoveComplete(
-			$oldTitle,
-			$newTitle,
-			$this->user,
-			0,
-			0
-		);
-
 		$this->assertInstanceOf(
-			'\SMW\MediaWiki\Hooks\TitleMoveComplete',
-			$instance
+			TitleMoveComplete::class,
+			new TitleMoveComplete( $this->namespaceExaminer )
 		);
 	}
 
 	public function testChangeSubjectForSupportedSemanticNamespace() {
+
+		$this->eventDispatcher->expects( $this->atLeastOnce() )
+			->method( 'dispatch' )
+			->withConsecutive(
+				[ $this->equalTo( 'InvalidateResultCache' ) ],
+				[ $this->equalTo( 'InvalidateResultCache' ) ],
+				[ $this->equalTo( 'InvalidateEntityCache' ) ],
+				[ $this->equalTo( 'InvalidateEntityCache' ) ] );
 
 		$oldTitle = \Title::newFromText( 'Old' );
 		$newTitle = \Title::newFromText( 'New' );
@@ -77,19 +84,27 @@ class TitleMoveCompleteTest extends \PHPUnit_Framework_TestCase {
 		$this->testEnvironment->registerObject( 'Store', $store );
 
 		$instance = new TitleMoveComplete(
-			$oldTitle,
-			$newTitle,
-			$this->user,
-			0,
-			0
+			$this->namespaceExaminer
+		);
+
+		$instance->setEventDispatcher(
+			$this->eventDispatcher
 		);
 
 		$this->assertTrue(
-			$instance->process()
+			$instance->process( $oldTitle, $newTitle, $this->user, 0, 0 )
 		);
 	}
 
 	public function testDeleteSubjectForNotSupportedSemanticNamespace() {
+
+		$this->eventDispatcher->expects( $this->atLeastOnce() )
+			->method( 'dispatch' )
+			->withConsecutive(
+				[ $this->equalTo( 'InvalidateResultCache' ) ],
+				[ $this->equalTo( 'InvalidateResultCache' ) ],
+				[ $this->equalTo( 'InvalidateEntityCache' ) ],
+				[ $this->equalTo( 'InvalidateEntityCache' ) ] );
 
 		$oldTitle = \Title::newFromText( 'Old' );
 		$newTitle = \Title::newFromText( 'New', NS_HELP );
@@ -100,21 +115,20 @@ class TitleMoveCompleteTest extends \PHPUnit_Framework_TestCase {
 
 		$store->expects( $this->once() )
 			->method( 'deleteSubject' )
-			->with(
-				$this->equalTo( $oldTitle ) );
+			->with( $this->equalTo( $oldTitle ) );
 
 		$this->testEnvironment->registerObject( 'Store', $store );
 
 		$instance = new TitleMoveComplete(
-			$oldTitle,
-			$newTitle,
-			$this->user,
-			0,
-			0
+			$this->namespaceExaminer
+		);
+
+		$instance->setEventDispatcher(
+			$this->eventDispatcher
 		);
 
 		$this->assertTrue(
-			$instance->process()
+			$instance->process( $oldTitle, $newTitle, $this->user, 0, 0 )
 		);
 	}
 

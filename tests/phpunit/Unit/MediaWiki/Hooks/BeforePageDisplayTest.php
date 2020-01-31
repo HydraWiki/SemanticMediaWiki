@@ -18,8 +18,13 @@ class BeforePageDisplayTest extends \PHPUnit_Framework_TestCase {
 	private $outputPage;
 	private $request;
 	private $skin;
+	private $title;
 
 	protected function setUp() {
+
+		$this->title = $this->getMockBuilder( '\Title' )
+			->disableOriginalConstructor()
+			->getMock();
 
 		$this->request = $this->getMockBuilder( '\WebRequest' )
 			->disableOriginalConstructor()
@@ -36,6 +41,10 @@ class BeforePageDisplayTest extends \PHPUnit_Framework_TestCase {
 		$this->outputPage = $this->getMockBuilder( '\OutputPage' )
 			->disableOriginalConstructor()
 			->getMock();
+
+		$this->outputPage->expects( $this->any() )
+			->method( 'getTitle' )
+			->will( $this->returnValue( $this->title ) );
 
 		$this->skin = $this->getMockBuilder( '\Skin' )
 			->disableOriginalConstructor()
@@ -54,6 +63,27 @@ class BeforePageDisplayTest extends \PHPUnit_Framework_TestCase {
 		);
 	}
 
+	public function testInformAboutExtensionAvailability() {
+
+		$this->title->expects( $this->once() )
+			->method( 'isSpecial' )
+			->with( $this->equalTo( 'Version' ) )
+			->will( $this->returnValue( true ) );
+
+		$this->outputPage->expects( $this->once() )
+			->method( 'prependHTML' );
+
+		$instance = new BeforePageDisplay();
+
+		$instance->setOptions(
+			[
+				'SMW_EXTENSION_LOADED' => false
+			]
+		);
+
+		$instance->informAboutExtensionAvailability( $this->outputPage );
+	}
+
 	public function testModules() {
 
 		$user = $this->getMockBuilder( '\User' )
@@ -65,7 +95,7 @@ class BeforePageDisplayTest extends \PHPUnit_Framework_TestCase {
 			->with( $this->equalTo( 'smw-prefs-general-options-suggester-textinput' ) )
 			->will( $this->returnValue( true ) );
 
-		$this->outputPage->expects( $this->exactly( 2 ) )
+		$this->outputPage->expects( $this->exactly( 1 ) )
 			->method( 'addModules' );
 
 		$this->outputPage->expects( $this->atLeastOnce() )
@@ -73,6 +103,64 @@ class BeforePageDisplayTest extends \PHPUnit_Framework_TestCase {
 			->will( $this->returnValue( $user ) );
 
 		$instance = new BeforePageDisplay();
+
+		$instance->process( $this->outputPage, $this->skin );
+	}
+
+	public function testPrependHTML_IncompleteTasks() {
+
+		$user = $this->getMockBuilder( '\User' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$this->outputPage->expects( $this->atLeastOnce() )
+			->method( 'prependHTML' );
+
+		$this->outputPage->expects( $this->atLeastOnce() )
+			->method( 'getUser' )
+			->will( $this->returnValue( $user ) );
+
+		$instance = new BeforePageDisplay();
+
+		$instance->setOptions(
+			[
+				'incomplete_tasks' => [ 'Foo', 'Bar' ]
+			]
+		);
+
+		$instance->process( $this->outputPage, $this->skin );
+	}
+
+	public function testEmptyPrependHTML_IncompleteTasks_DisallowedSpecialPages() {
+
+		$user = $this->getMockBuilder( '\User' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$this->title->expects( $this->any() )
+			->method( 'isSpecialPage' )
+			->will( $this->returnValue( true ) );
+
+		$this->title->expects( $this->any() )
+			->method( 'isSpecial' )
+			->with( $this->equalTo( 'Userlogin' ) )
+			->will( $this->returnValue( true ) );
+
+		$this->outputPage->expects( $this->once() )
+			->method( 'prependHTML' )
+			->with( $this->equalTo( '' ) );
+
+		$this->outputPage->expects( $this->atLeastOnce() )
+			->method( 'getUser' )
+			->will( $this->returnValue( $user ) );
+
+		$instance = new BeforePageDisplay();
+
+		$instance->setOptions(
+			[
+				'incomplete_tasks' => [ 'Foo', 'Bar' ]
+			]
+		);
 
 		$instance->process( $this->outputPage, $this->skin );
 	}

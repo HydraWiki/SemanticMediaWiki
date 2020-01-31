@@ -62,6 +62,28 @@ class TestEnvironment {
 	}
 
 	/**
+	 * @since 3.2
+	 *
+	 * @param array $defaultSettingKeys
+	 */
+	public static function loadDefaultSettings( array $defaultSettingKeys = [] ) {
+
+		$settings = require $GLOBALS['smwgIP'] . 'DefaultSettings.php';
+
+		if ( $defaultSettingKeys !== [] ) {
+			$copy = [];
+
+			foreach ( $defaultSettingKeys as $key ) {
+				$copy[$key] = $settings[$key];
+			}
+
+			$settings = $copy;
+		}
+
+		( new TestConfig() )->set( $settings );
+	}
+
+	/**
 	 * @since 2.4
 	 *
 	 * @param string $key
@@ -131,6 +153,45 @@ class TestEnvironment {
 			// Do nothing just avoid a
 			// MediaWiki\Services\NoSuchServiceException: No such service ...
 		}
+	}
+
+	/**
+	 * @since 3.1
+	 */
+	public static function changePrefix( $prefix ) {
+
+		if ( !defined( 'MW_PHPUNIT_TEST' ) ) {
+			throw new \RuntimeException( "Your are trying to change the `DomainPrefix` while not being in test!" );
+		}
+
+		$lbFactory = \MediaWiki\MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
+
+		// MW 1.33+
+		if ( method_exists( $lbFactory, 'setLocalDomainPrefix' ) ) {
+			$lbFactory->setLocalDomainPrefix( $prefix );
+		} else {
+			$lbFactory->setDomainPrefix( $prefix );
+		}
+
+		$GLOBALS['wgDBprefix'] = $prefix;
+	}
+	/**
+	 * @see https://github.com/wikimedia/mediawiki/commit/7b4eafda0d986180d20f37f2489b70e8eca00df4
+	 * @since 3.2
+	 */
+	public static function overrideUserPermissions( $user, $permissions = [] ) {
+
+		if ( !class_exists( '\MediaWiki\MediaWikiServices' ) || !method_exists( \MediaWiki\MediaWikiServices::getInstance(), 'getPermissionManager' ) ) {
+			return;
+		}
+
+		$permissionManager = \MediaWiki\MediaWikiServices::getInstance()->getPermissionManager();
+
+		if ( !method_exists( $permissionManager, 'overrideUserRightsForTesting' ) ) {
+			return;
+		}
+
+		$permissionManager->overrideUserRightsForTesting( $user, $permissions );
 	}
 
 	/**

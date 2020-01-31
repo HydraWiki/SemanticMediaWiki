@@ -76,6 +76,15 @@ class OutputFormatter {
 	}
 
 	/**
+	 * @since 3.1
+	 *
+	 * @param string|array $modules
+	 */
+	public function addModules( $modules ) {
+		$this->outputPage->addModules( $modules );
+	}
+
+	/**
 	 * @since 2.5
 	 *
 	 * @param string $html
@@ -90,7 +99,11 @@ class OutputFormatter {
 	 * @param string $text
 	 */
 	public function addWikiText( $text ) {
-		$this->outputPage->addWikiText( $text );
+		if ( method_exists( $this->outputPage, 'addWikiTextAsInterface' ) ) {
+			$this->outputPage->addWikiTextAsInterface( $text );
+		} else {
+			$this->outputPage->addWikiText( $text );
+		}
 	}
 
 	/**

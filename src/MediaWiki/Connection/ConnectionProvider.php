@@ -5,7 +5,8 @@ namespace SMW\MediaWiki\Connection;
 use Psr\Log\LoggerAwareTrait;
 use RuntimeException;
 use SMW\Connection\ConnectionProvider as IConnectionProvider;
-use SMW\Connection\ConnectionProviderRef;
+use SMW\Connection\ConnRef;
+use SMW\Services\ServicesFactory;
 
 /**
  * @license GNU GPL v2+
@@ -67,7 +68,7 @@ class ConnectionProvider implements IConnectionProvider {
 
 		// Default configuration
 		$conf = [
-			'read'  => DB_SLAVE,
+			'read'  => DB_REPLICA,
 			'write' => DB_MASTER
 		];
 
@@ -102,36 +103,10 @@ class ConnectionProvider implements IConnectionProvider {
 			throw new RuntimeException( "The configuration is incomplete (requires a `read` and `write` identifier)." );
 		}
 
-		$connectionProviders = [];
-
-		$connectionProviders['read'] = new LoadBalancerConnectionProvider(
-			$conf['read']
-		);
-
-		if ( $conf['read'] === $conf['write'] ) {
-			$connectionProviders['write'] = $connectionProviders['read'];
-		} else {
-			$connectionProviders['write'] = new LoadBalancerConnectionProvider(
-				$conf['write']
-			);
-		}
-
-		$transactionProfiler = new TransactionProfiler(
-			\Profiler::instance()->getTransactionProfiler()
-		);
-
-		$transactionProfiler->silenceTransactionProfiler();
-
 		$connection = new Database(
-			new ConnectionProviderRef( $connectionProviders )
+			$this->newConnRef( $conf ),
+			$this->newTransactionHandler()
 		);
-
-		$connection->setTransactionProfiler(
-			$transactionProfiler
-		);
-
-		// Only required because of SQlite
-		$connection->setDBPrefix( $GLOBALS['wgDBprefix'] );
 
 		$this->logger->info(
 			[
@@ -142,13 +117,48 @@ class ConnectionProvider implements IConnectionProvider {
 				'role' => 'developer',
 				'provider' => $this->provider,
 				'conf' => [
-					'read'  => $conf['read'] === DB_SLAVE ? 'DB_SLAVE' : 'DB_MASTER',
-					'write' => $conf['write'] === DB_SLAVE ? 'DB_SLAVE' : 'DB_MASTER',
+					'read'  => $conf['read'] === DB_REPLICA ? 'DB_REPLICA' : 'DB_MASTER',
+					'write' => $conf['write'] === DB_REPLICA ? 'DB_REPLICA' : 'DB_MASTER',
 				]
 			]
 		);
 
 		return $connection;
+	}
+
+	private function newConnRef( $conf ) {
+
+		$read = $this->newLoadBalancerConnectionProvider( $conf['read'] );
+
+		if ( $conf['read'] !== $conf['write'] ) {
+			$write = $this->newLoadBalancerConnectionProvider( $conf['write'] );
+		} else {
+			$write = $read;
+		}
+
+		return new ConnRef(
+			[
+				'read'  => $read,
+				'write' => $write
+			]
+		);
+	}
+
+	private function newLoadBalancerConnectionProvider( $id ) {
+		return new LoadBalancerConnectionProvider( $id );
+	}
+
+	private function newTransactionHandler() {
+
+		$transactionHandler = new TransactionHandler(
+			ServicesFactory::getInstance()->create( 'DBLoadBalancerFactory' )
+		);
+
+		$transactionHandler->setTransactionProfiler(
+			\Profiler::instance()->getTransactionProfiler()
+		);
+
+		return $transactionHandler;
 	}
 
 }

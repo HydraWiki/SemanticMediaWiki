@@ -4,8 +4,22 @@
  * SemanticMediaWiki compatibility aliases for classes that got moved into the SMW namespace
  */
 
+// 3.1
+class_alias( \SMW\Query\ResultPrinters\RdfResultPrinter::class, 'SMWRDFResultPrinter' );
+class_alias( \SMW\Query\ResultPrinters\EmbeddedResultPrinter::class, 'SMWEmbeddedResultPrinter' );
+class_alias( \SMW\Query\ResultPrinters\DsvResultPrinter::class, 'SMWDSVResultPrinter' );
+class_alias( \SMW\Query\ResultPrinters\AggregatablePrinter::class, 'SMWAggregatablePrinter' );
+class_alias( \SMW\Property\Annotator::class, 'SMW\PropertyAnnotator' );
+class_alias( \SMW\Property\SpecificationLookup::class, 'SMW\PropertySpecificationLookup' );
+class_alias( \SMW\Property\RestrictionExaminer::class, 'SMW\PropertyRestrictionExaminer' );
+class_alias( \SMW\Query\Result\ResultArray::class, 'SMWResultArray' );
+class_alias( \SMW\Query\QueryResult::class, 'SMWQueryResult' );
+class_alias( \SMW\Services\ServicesFactory::class, '\SMW\ApplicationFactory' );
+class_alias( \SMW\SQLStore\EntityStore\EntityIdManager::class, '\SMWSql3SmwIds' );
+
 // 3.0
 class_alias( \SMW\MediaWiki\Deferred\CallableUpdate::class, 'SMW\DeferredCallableUpdate' );
+class_alias( \SMW\MediaWiki\Deferred\TransactionalCallableUpdate::class, 'SMW\DeferredTransactionalCallableUpdate' );
 class_alias( \SMW\Parser\InTextAnnotationParser::class, 'SMW\InTextAnnotationParser' );
 class_alias( \SMW\Encoder::class, 'SMW\UrlEncoder' );
 class_alias( \SMW\Query\ResultPrinter::class, 'SMW\QueryResultPrinter' );
@@ -40,13 +54,8 @@ class_alias( \SMW\Query\ResultPrinters\TableResultPrinter::class, 'SMWTableResul
 
 // 2.0
 class_alias( \SMW\Query\ResultPrinters\FileExportPrinter::class, 'SMWExportPrinter' );
-class_alias( \SMW\AggregatablePrinter::class, 'SMWAggregatablePrinter' );
 class_alias( \SMW\Query\ResultPrinters\CategoryResultPrinter::class, 'SMWCategoryResultPrinter' );
-class_alias( \SMW\DsvResultPrinter::class, 'SMWDSVResultPrinter' );
-class_alias( \SMW\EmbeddedResultPrinter::class, 'SMWEmbeddedResultPrinter' );
-class_alias( \SMW\RdfResultPrinter::class, 'SMWRDFResultPrinter' );
 class_alias( \SMW\ListResultPrinter::class, 'SMWListResultPrinter' );
-class_alias( \SMW\RawResultPrinter::class, 'SMW\ApiResultPrinter' );
 
 // 2.0
 class_alias( \SMW\SPARQLStore\SPARQLStore::class, 'SMWSparqlStore' );
@@ -55,7 +64,7 @@ class_alias( \SMW\SPARQLStore\RepositoryConnectors\VirtuosoRepositoryConnector::
 class_alias( \SMW\SPARQLStore\RepositoryConnectors\GenericRepositoryConnector::class, 'SMWSparqlDatabase' );
 
 // 2.1
-class_alias( \SMWSQLStore3::class, 'SMW\SQLStore\SQLStore' );
+class_alias( \SMW\SQLStore\SQLStore::class, 'SMWSQLStore3' );
 class_alias( \SMW\Query\Language\Description::class, 'SMWDescription' );
 class_alias( \SMW\Query\Language\ThingDescription::class, 'SMWThingDescription' );
 class_alias( \SMW\Query\Language\ClassDescription::class, 'SMWClassDescription' );
@@ -66,7 +75,7 @@ class_alias( \SMW\Query\Language\Conjunction::class, 'SMWConjunction' );
 class_alias( \SMW\Query\Language\Disjunction::class, 'SMWDisjunction' );
 class_alias( \SMW\Query\Language\SomeProperty::class, 'SMWSomeProperty' );
 class_alias( \SMW\Query\PrintRequest::class, 'SMWPrintRequest' );
-class_alias( \SMW\MediaWiki\Search\Search::class, 'SMWSearch' );
+class_alias( \SMW\MediaWiki\Search\ExtendedSearchEngine::class, 'SMWSearch' );
 
 // 2.2
 // Some weird SF dependency needs to be removed as quick as possible

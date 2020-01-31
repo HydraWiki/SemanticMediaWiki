@@ -101,7 +101,17 @@ class QueryResultSerializer implements DispatchableSerializer {
 						];
 
 						foreach ( $recordValue->getDataItem()->getSemanticData()->getPropertyValues( $property ) as $value ) {
-							$recordDiValues[$label]['item'][] = self::getSerialization( $value );
+
+							if ( $property->findPropertyTypeID() === '_qty' ) {
+								$dataValue = DataValueFactory::getInstance()->newDataValueByItem( $value, $property );
+
+								$recordDiValues[$label]['item'][] = [
+									'value' => $dataValue->getNumber(),
+									'unit' => $dataValue->getUnit()
+								];
+							} else {
+								$recordDiValues[$label]['item'][] = self::getSerialization( $value );
+							}
 						}
 					}
 					$result = $recordDiValues;
@@ -130,6 +140,11 @@ class QueryResultSerializer implements DispatchableSerializer {
 				// (unit is part of the datavalue object)
 				if ( $printRequest !== null && $printRequest->getTypeID() === '_qty' ) {
 					$diProperty = $printRequest->getData()->getDataItem();
+
+					if ( $printRequest->isMode( \SMW\Query\PrintRequest::PRINT_CHAIN ) ) {
+						$diProperty = $printRequest->getData()->getLastPropertyChainValue()->getDataItem();
+					}
+
 					$dataValue = DataValueFactory::getInstance()->newDataValueByItem( $dataItem, $diProperty );
 
 					$result = [
@@ -187,7 +202,7 @@ class QueryResultSerializer implements DispatchableSerializer {
 			$result = [ 'printouts' => [] ];
 
 			foreach ( $queryResult->getPrintRequests() as $printRequest ) {
-				$resultArray = new SMWResultArray( $diWikiPage, $printRequest, $queryResult->getStore() );
+				$resultArray = SMWResultArray::factory( $diWikiPage, $printRequest, $queryResult );
 
 				if ( $printRequest->getMode() === PrintRequest::PRINT_THIS ) {
 					$dataItems = $resultArray->getContent();
@@ -259,8 +274,12 @@ class QueryResultSerializer implements DispatchableSerializer {
 			return $serialized;
 		}
 
+		$serialized['redi'] = '';
+
 		// To match forwarded redirects
-		$serialized['redi'] = !$data->getInceptiveProperty()->equals( $data->getDataItem() ) ? $data->getInceptiveProperty()->getKey() : '';
+		if ( !$data->getInceptiveProperty()->equals( $data->getDataItem() ) ) {
+			$serialized['redi'] = $data->getInceptiveProperty()->getKey();
+		}
 
 		// To match internal properties like _MDAT
 		$serialized['key'] = $data->getDataItem()->getKey();

@@ -2,6 +2,8 @@
 
 namespace SMW\SQLStore\TableBuilder;
 
+use SMW\Utils\CliMsgFormatter;
+
 /**
  * @license GNU GPL v2+
  * @since 2.5
@@ -49,7 +51,9 @@ class MySQLTableBuilder extends TableBuilder {
 			'char_nocase'      => 'VARCHAR(255) CHARSET utf8 COLLATE utf8_general_ci',
 			'char_long_nocase' => "VARCHAR($charLongLength) CHARSET utf8 COLLATE utf8_general_ci",
 			'usage_count'      => 'INT(8) UNSIGNED',
-			'integer_unsigned' => 'INT(8) UNSIGNED'
+			'integer_unsigned' => 'INT(8) UNSIGNED',
+			'enum' => 'ENUM',
+			'timestamp' => 'BINARY(14)'
 		];
 
 		return FieldType::mapType( $fieldType, $fieldTypes );
@@ -100,10 +104,10 @@ class MySQLTableBuilder extends TableBuilder {
 			return $tableOption;
 		}
 
-		// @see $wgDBattributes, This replacement is needed for compatibility,
+		// @see $wgDBTableOptions, This replacement is needed for compatibility,
 		// http://bugs.mysql.com/bug.php?id=17501
-		if ( isset( $this->config['wgDBattributes'] ) ) {
-			return str_replace( 'TYPE', 'ENGINE', $this->config['wgDBattributes'] );
+		if ( isset( $this->config['wgDBTableOptions'] ) ) {
+			return str_replace( 'TYPE', 'ENGINE', $this->config['wgDBTableOptions'] );
 		}
 	}
 
@@ -147,7 +151,12 @@ class MySQLTableBuilder extends TableBuilder {
 		$currentFields = [];
 
 		foreach ( $res as $row ) {
-			$type = strtoupper( $row->Type );
+
+			if ( strpos( $row->Type, 'enum' ) !== false ) {
+				$type = str_replace( 'enum', 'ENUM', $row->Type );
+			} else {
+				$type = strtoupper( $row->Type );
+			}
 
 			if ( substr( $type, 0, 8 ) == 'VARCHAR(' ) {
 				$type .= ' binary'; // just assume this to be the case for VARCHAR, though DESCRIBE will not tell us
@@ -157,7 +166,9 @@ class MySQLTableBuilder extends TableBuilder {
 				$type .= ' NOT NULL';
 			}
 
-			if ( $row->Key == 'PRI' ) { /// FIXME: updating "KEY" is not possible, the below query will fail in this case.
+			// Indicates PRIMARY KEY or index and since updating "KEY" is not
+			// possible only allow it in combination with a `auto_increment`
+			if ( $row->Key == 'PRI' && $row->Extra == 'auto_increment' ) {
 				$type .= ' KEY';
 			}
 
@@ -283,6 +294,14 @@ class MySQLTableBuilder extends TableBuilder {
 		// the length information from the temporary mirror when comparing new and
 		// old; of course we won't detect length changes!
 		foreach ( $indices as $k => $columns ) {
+
+			// Avoid "Error: 1068 Multiple primary key defined " when a primary
+			// index already exists and you try to add another one (e.g. defined
+			// for the same DI type but a fixed table)
+			if ( isset( $currentIndices['PRIMARY'] ) && is_array( $columns ) && $columns[1] === 'PRIMARY KEY' ) {
+				unset( $indices[$k] );
+			}
+
 			$idx[$k] = preg_replace("/\([^)]+\)/", "", $columns );
 		}
 
@@ -342,7 +361,7 @@ class MySQLTableBuilder extends TableBuilder {
 		$tableName = $this->connection->tableName( $tableName );
 		$indexOption = '';
 
-		$this->reportMessage( "   ... creating new index $columns ..." );
+		$this->reportMessage( "   ... creating new $indexType $columns ..." );
 
 		// @see MySQLTableBuilder::createExtraSQLFromattributes
 		// @see https://dev.mysql.com/doc/refman/5.7/en/fulltext-search-ngram.html
@@ -382,21 +401,35 @@ class MySQLTableBuilder extends TableBuilder {
 	 */
 	protected function doOptimize( $tableName ) {
 
-		$this->reportMessage( "Checking table $tableName ...\n" );
+		$cliMsgFormatter = new CliMsgFormatter();
+
+		$this->reportMessage(
+			$cliMsgFormatter->firstCol( "... $tableName ", 3 )
+		);
+
+		$tableName = $this->connection->tableName( $tableName );
 
 		// https://dev.mysql.com/doc/refman/5.7/en/analyze-table.html
 		// Performs a key distribution analysis and stores the distribution for
 		// the named table or tables
-		$this->reportMessage( "   ... analyze" );
-		$this->connection->query( 'ANALYZE TABLE ' . $this->connection->tableName( $tableName ), __METHOD__ );
+		$this->reportMessage(
+			$cliMsgFormatter->positionCol( "analyze", 55, '.' )
+		);
+
+		$this->connection->query( "ANALYZE TABLE $tableName", __METHOD__ );
 
 		// https://dev.mysql.com/doc/refman/5.7/en/optimize-table.html
 		// Reorganizes the physical storage of table data and associated index data,
 		// to reduce storage space and improve I/O efficiency
-		$this->reportMessage( ", optimize " );
-		$this->connection->query( 'OPTIMIZE TABLE ' . $this->connection->tableName( $tableName ), __METHOD__ );
+		$this->reportMessage(
+			$cliMsgFormatter->positionCol( ", optimize" )
+		);
 
-		$this->reportMessage( "done.\n" );
+		$this->connection->query( "OPTIMIZE TABLE $tableName", __METHOD__ );
+
+		$this->reportMessage(
+			$cliMsgFormatter->secondCol( CliMsgFormatter::OK )
+		);
 	}
 
 }

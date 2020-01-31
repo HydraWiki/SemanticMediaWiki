@@ -81,10 +81,6 @@ class MonolingualTextValueTest extends \PHPUnit_Framework_TestCase {
 
 	public function testErrorForInvalidLanguageCode() {
 
-		if ( version_compare( $GLOBALS['wgVersion'], '1.20', '<' ) ) {
-			$this->markTestSkipped( 'Skipping because `Language::isKnownLanguageTag` is not supported on 1.19' );
-		}
-
 		$instance = new MonolingualTextValue();
 
 		$instance->setDataValueServiceFactory(
@@ -126,7 +122,7 @@ class MonolingualTextValueTest extends \PHPUnit_Framework_TestCase {
 
 		$this->assertEquals(
 			'Foo',
-			$instance->getTextValueByLanguage( 'en' )->getDataItem()->getString()
+			$instance->getTextValueByLanguageCode( 'en' )->getDataItem()->getString()
 		);
 	}
 
@@ -141,7 +137,7 @@ class MonolingualTextValueTest extends \PHPUnit_Framework_TestCase {
 		$instance->setUserValue( 'Foo@en' );
 
 		$this->assertNull(
-			$instance->getTextValueByLanguage( 'bar' )
+			$instance->getTextValueByLanguageCode( 'bar' )
 		);
 	}
 
@@ -169,10 +165,6 @@ class MonolingualTextValueTest extends \PHPUnit_Framework_TestCase {
 	}
 
 	public function testGetWikiValueForInvalidMonolingualTextValue() {
-
-		if ( version_compare( $GLOBALS['wgVersion'], '1.20', '<' ) ) {
-			$this->markTestSkipped( 'Skipping because `Language::isKnownLanguageTag` is not supported on 1.19' );
-		}
 
 		$instance = new MonolingualTextValue();
 

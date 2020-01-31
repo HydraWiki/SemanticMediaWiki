@@ -3,9 +3,12 @@
 namespace SMW\MediaWiki\Hooks;
 
 use SMW\ApplicationFactory;
-use SMW\MediaWiki\EditInfoProvider;
+use SMW\MediaWiki\EditInfo;
+use SMW\MediaWiki\HookListener;
+use PSr\Log\LoggerAwareTrait;
 use SMW\Message;
-use SMW\PropertyAnnotators\EditProtectedPropertyAnnotator;
+use SMW\OptionsAwareTrait;
+use SMW\Property\Annotators\EditProtectedPropertyAnnotator;
 use Title;
 
 /**
@@ -18,7 +21,10 @@ use Title;
  *
  * @author mwjames
  */
-class ArticleProtectComplete extends HookHandler {
+class ArticleProtectComplete implements HookListener {
+
+	use LoggerAwareTrait;
+	use OptionsAwareTrait;
 
 	/**
 	 * Whether the update should be restricted or not. Which means that when
@@ -33,20 +39,19 @@ class ArticleProtectComplete extends HookHandler {
 	private $title;
 
 	/**
-	 * @var EditInfoProvider
+	 * @var EditInfo
 	 */
-	private $editInfoProvider;
+	private $editInfo;
 
 	/**
 	 * @since  2.5
 	 *
 	 * @param Title $title
-	 * @param EditInfoProvider $editInfoProvider
+	 * @param EditInfo $editInfo
 	 */
-	public function __construct( Title $title, EditInfoProvider $editInfoProvider ) {
-		parent::__construct();
+	public function __construct( Title $title, EditInfo $editInfo ) {
 		$this->title = $title;
-		$this->editInfoProvider = $editInfoProvider;
+		$this->editInfo = $editInfo;
 	}
 
 	/**
@@ -58,15 +63,15 @@ class ArticleProtectComplete extends HookHandler {
 	public function process( $protections, $reason ) {
 
 		if ( Message::get( 'smw-edit-protection-auto-update' ) === $reason ) {
-			return $this->log( __METHOD__ . ' No changes required, invoked by own process!' );
+			return $this->logger->info( __METHOD__ . ' No changes required, invoked by own process!' );
 		}
 
-		$this->editInfoProvider->fetchEditInfo();
+		$this->editInfo->fetchEditInfo();
 
-		$output = $this->editInfoProvider->getOutput();
+		$output = $this->editInfo->getOutput();
 
 		if ( $output === null ) {
-			return $this->log( __METHOD__ . ' Missing ParserOutput!' );
+			return $this->logger->info( __METHOD__ . ' Missing ParserOutput!' );
 		}
 
 		$parserData = ApplicationFactory::getInstance()->newParserData(
@@ -102,7 +107,7 @@ class ArticleProtectComplete extends HookHandler {
 		// No _EDIP annotation but a selected protection matches the
 		// `EditProtectionRight` setting
 		if ( !$dataItem && isset( $protections['edit'] ) && $protections['edit'] === $editProtectionRight ) {
-			$this->log( 'ArticleProtectComplete addProperty `Is edit protected`' );
+			$this->logger->info( 'ArticleProtectComplete addProperty `Is edit protected`' );
 
 			$isRestrictedUpdate = false;
 			$parserData->getSemanticData()->addPropertyObjectValue(
@@ -116,7 +121,7 @@ class ArticleProtectComplete extends HookHandler {
 		// annotation) but since the selected protection doesn't match the
 		// `EditProtectionRight` setting, remove the annotation
 		if ( $dataItem && $isAnnotationBySystem && isset( $protections['edit'] ) && $protections['edit'] !== $editProtectionRight ) {
-			$this->log( 'ArticleProtectComplete removeProperty `Is edit protected`' );
+			$this->logger->info( 'ArticleProtectComplete removeProperty `Is edit protected`' );
 
 			$isRestrictedUpdate = false;
 			$parserData->getSemanticData()->removePropertyObjectValue(

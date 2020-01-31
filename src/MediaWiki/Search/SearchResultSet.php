@@ -4,6 +4,9 @@ namespace SMW\MediaWiki\Search;
 
 use SMW\DIWikiPage;
 use SMW\Utils\CharExaminer;
+use SearchSuggestion;
+use SearchSuggestionSet;
+use SMW\Query\QueryResult;
 
 /**
  * @ingroup SMW
@@ -32,7 +35,7 @@ class SearchResultSet extends \SearchResultSet {
 
 	private $count = null;
 
-	public function __construct( \SMWQueryResult $result, $count = null ) {
+	public function __construct( QueryResult $result, $count = null ) {
 		$this->pages = $result->getResults();
 		$this->queryToken = $result->getQuery()->getQueryToken();
 		$this->excerpts = $result->getExcerpts();
@@ -68,7 +71,7 @@ class SearchResultSet extends \SearchResultSet {
 		$searchResult = false;
 
 		if ( $page instanceof DIWikiPage ) {
-			$searchResult = SearchResult::newFromTitle( $page->getTitle() );
+			$searchResult = new SearchResult( $page->getTitle() );
 		}
 
 		// Attempt to use excerpts available from a different back-end
@@ -91,16 +94,30 @@ class SearchResultSet extends \SearchResultSet {
 	public function newSearchSuggestionSet() {
 
 		$suggestions = [];
+		$filter = [];
+
 		$hasMoreResults = false;
 		$score = count( $this->pages );
 
 		foreach ( $this->pages as $page ) {
-			if ( ( $title = $page->getTitle() ) && $title->exists() ) {
-				$suggestions[] = \SearchSuggestion::fromTitle( $score--, $title );
+			if ( ( $title = $page->getTitle() ) !== null ) {
+				$key = $title->getPrefixedDBKey();
+
+				if ( $title->getNamespace() !== SMW_NS_PROPERTY && !$title->exists() ) {
+					continue;
+				}
+
+				if ( isset( $filter[$key] ) ) {
+					continue;
+				}
+
+				// Filter subobjects which are not distinguishable in MW
+				$filter[$key] = true;
+				$suggestions[] = SearchSuggestion::fromTitle( $score--, $title );
 			}
 		}
 
-		return new \SearchSuggestionSet( $suggestions, $hasMoreResults );
+		return new SearchSuggestionSet( $suggestions, $hasMoreResults );
 	}
 
 	/**
@@ -125,7 +142,7 @@ class SearchResultSet extends \SearchResultSet {
 		foreach ( $this->pages as $page ) {
 
 			if ( $page instanceof DIWikiPage ) {
-				$searchResult = SearchResult::newFromTitle( $page->getTitle() );
+				$searchResult = new SearchResult( $page->getTitle() );
 			}
 
 			// Attempt to use excerpts available from a different back-end

@@ -111,7 +111,7 @@ class ExpResourceMapper {
 	 *
 	 * @note $useAuxiliaryModifier is to determine whether an auxiliary
 	 * property resource is to store a helper value
-	 * (see Exporter::getDataItemHelperExpElement) should be generated
+	 * (see Exporter::newAuxiliaryExpElement) should be generated
 	 *
 	 * @param DIProperty $property
 	 * @param boolean $useAuxiliaryModifier
@@ -205,7 +205,7 @@ class ExpResourceMapper {
 		$resource->isImported = $importDataItem instanceof DataItem;
 		$dbKey = $diWikiPage->getDBkey();
 
-		if ( $diWikiPage->getNamespace() === SMW_NS_PROPERTY && $dbKey !== '' && $dbKey{0} !== '-' ) {
+		if ( $diWikiPage->getNamespace() === SMW_NS_PROPERTY && $dbKey !== '' && $dbKey[0] !== '-' ) {
 			$resource->isUserDefined = DIProperty::newFromUserLabel( $diWikiPage->getDBkey() )->isUserDefined();
 		}
 
@@ -246,7 +246,7 @@ class ExpResourceMapper {
 		}
 
 		if ( ( $localName === '' ) ||
-		     ( in_array( $localName{0}, [ '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9' ] ) ) ||
+		     ( in_array( $localName[0], [ '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9' ] ) ) ||
 		     ( $hasFixedNamespace && strpos( $localName, '/' ) !== false )
 		     ) {
 			$namespace = Exporter::getInstance()->getNamespaceUri( 'wiki' );

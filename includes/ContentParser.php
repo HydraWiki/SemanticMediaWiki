@@ -7,6 +7,7 @@ use ParserOptions;
 use Revision;
 use Title;
 use User;
+use SMW\MediaWiki\RevisionGuard;
 
 /**
  * Fetches the ParserOutput either by parsing an invoked text component,
@@ -176,12 +177,17 @@ class ContentParser {
 			$content = $this->getRevision()->getContentHandler()->makeEmptyContent();
 		}
 
-		$this->parserOutput = $content->getParserOutput(
-			$this->getTitle(),
-			$this->getRevision()->getId(),
-			null,
-			true
-		);
+		// Avoid "The content model 'xyz' is not registered on this wiki."
+		try {
+			$this->parserOutput = $content->getParserOutput(
+				$this->getTitle(),
+				$this->getRevision()->getId(),
+				null,
+				true
+			);
+		} catch( \MWUnknownContentModelException $e ) {
+			$this->parserOutput = null;
+		}
 
 		return $this;
 	}
@@ -239,7 +245,10 @@ class ContentParser {
 			$this->revision = Revision::newFromTitle( $this->getTitle() );
 		}
 
-		\Hooks::run( 'SMW::Parser::ChangeRevision', [ $this->getTitle(), &$this->revision ] );
+		$this->revision = RevisionGuard::getRevision(
+			$this->getTitle(),
+			$this->revision
+		);
 
 		return $this->revision;
 	}

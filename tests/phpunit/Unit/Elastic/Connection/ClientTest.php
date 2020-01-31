@@ -3,7 +3,7 @@
 namespace SMW\Tests\Elastic\Connection;
 
 use SMW\Elastic\Connection\Client;
-use SMW\Options;
+use SMW\Elastic\Config;
 use SMW\Tests\PHPUnitCompat;
 
 /**
@@ -20,7 +20,7 @@ class ClientTest extends \PHPUnit_Framework_TestCase {
 	use PHPUnitCompat;
 
 	private $elasticClient;
-	private $cache;
+	private $lockManager;
 
 	protected function setUp() {
 
@@ -32,7 +32,7 @@ class ClientTest extends \PHPUnit_Framework_TestCase {
 			->disableOriginalConstructor()
 			->getMock();
 
-		$this->cache = $this->getMockBuilder( '\Onoi\Cache\Cache' )
+		$this->lockManager = $this->getMockBuilder( '\SMW\Elastic\Connection\LockManager' )
 			->disableOriginalConstructor()
 			->getMock();
 	}
@@ -41,13 +41,39 @@ class ClientTest extends \PHPUnit_Framework_TestCase {
 
 		$this->assertInstanceOf(
 			Client::class,
-			new Client( $this->elasticClient )
+			new Client( $this->elasticClient, $this->lockManager )
 		);
+	}
+
+	public function testHasMaintenanceLock() {
+
+		$this->lockManager->expects( $this->once() )
+			->method( 'hasMaintenanceLock' );
+
+		$instance = new Client(
+			$this->elasticClient,
+			$this->lockManager
+		);
+
+		$instance->hasMaintenanceLock();
+	}
+
+	public function testSetMaintenanceLock() {
+
+		$this->lockManager->expects( $this->once() )
+			->method( 'setMaintenanceLock' );
+
+		$instance = new Client(
+			$this->elasticClient,
+			$this->lockManager
+		);
+
+		$instance->setMaintenanceLock();
 	}
 
 	public function testBulkOnIllegalArgumentErrorThrowsReplicationException() {
 
-		$options = new Options (
+		$options = new Config (
 			[
 				'replication' => [
 					'throw.exception.on.illegal.argument.error' => true
@@ -63,7 +89,7 @@ class ClientTest extends \PHPUnit_Framework_TestCase {
 
 		$instance = new Client(
 			$this->elasticClient,
-			$this->cache,
+			$this->lockManager,
 			$options
 		);
 

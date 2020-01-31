@@ -33,7 +33,7 @@ class DataValueServiceFactory {
 	/**
 	 * Indicates a DataValue service
 	 */
-	const SERVICE_FILE = 'DataValueServices.php';
+	const SERVICE_FILE = 'datavalues.php';
 
 	/**
 	 * Indicates a DataValue service
@@ -54,11 +54,6 @@ class DataValueServiceFactory {
 	 * Indicates a ValueValidator service
 	 */
 	const TYPE_VALIDATOR = '__dv.validator.';
-
-	/**
-	 * Extraneous service
-	 */
-	const TYPE_EXT_FUNCTION = '__dv.ext.func.';
 
 	/**
 	 * @var ContainerBuilder
@@ -98,30 +93,6 @@ class DataValueServiceFactory {
 	}
 
 	/**
-	 * Imported functions registered with DataTypeRegistry::registerExtraneousFunction
-	 *
-	 * @since 2.5
-	 *
-	 * @param array $extraneousFunctions
-	 */
-	public function importExtraneousFunctions( array $extraneousFunctions ) {
-		foreach ( $extraneousFunctions as $serviceName => $calllback ) {
-			$this->containerBuilder->registerCallback( self::TYPE_EXT_FUNCTION . $serviceName, $calllback );
-		}
-	}
-
-	/**
-	 * @since 2.5
-	 *
-	 * @param string $serviceName
-	 *
-	 * @return mixed
-	 */
-	public function newExtraneousFunctionByName( $serviceName ) {
-		return $this->containerBuilder->create( self::TYPE_EXT_FUNCTION . $serviceName );
-	}
-
-	/**
 	 * @since 2.5
 	 *
 	 * @param string $typeId
@@ -129,10 +100,13 @@ class DataValueServiceFactory {
 	 *
 	 * @return DataValue
 	 */
-	public function newDataValueByType( $typeId, $class ) {
+	public function newDataValueByTypeOrClass( $typeId, $class ) {
 
-		if ( $this->containerBuilder->isRegistered( self::TYPE_INSTANCE . $typeId ) ) {
-			return $this->containerBuilder->create( self::TYPE_INSTANCE . $typeId );
+		if ( is_callable( $class ) ) {
+			return $class( $typeId );
+		}
+		if ( $this->containerBuilder->isRegistered( $class ) ) {
+			return $this->containerBuilder->create( $class );
 		}
 
 		// Legacy invocation, for those that have not been defined yet!s
@@ -193,6 +167,15 @@ class DataValueServiceFactory {
 	}
 
 	/**
+	 * @since 3.1
+	 *
+	 * @return UnitConverter
+	 */
+	public function getUnitConverter() {
+		return $this->containerBuilder->singleton( 'UnitConverter' );
+	}
+
+	/**
 	 * @since 3.0
 	 *
 	 * @return PropertyRestrictionExaminer
@@ -206,6 +189,16 @@ class DataValueServiceFactory {
 		);
 
 		return $propertyRestrictionExaminer;
+	}
+
+
+	/**
+	 * @since 3.1
+	 *
+	 * @return DescriptionBuilderRegistry
+	 */
+	public function getDescriptionBuilderRegistry() {
+		return $this->containerBuilder->singleton( 'DescriptionBuilderRegistry' );
 	}
 
 	private function getDispatchableValueFormatter( $dataValue ) {

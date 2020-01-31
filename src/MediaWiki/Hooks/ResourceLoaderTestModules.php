@@ -3,6 +3,7 @@
 namespace SMW\MediaWiki\Hooks;
 
 use ResourceLoader;
+use SMW\MediaWiki\HookListener;
 
 /**
  * Add new JavaScript/QUnit testing modules
@@ -14,7 +15,7 @@ use ResourceLoader;
  *
  * @author mwjames
  */
-class ResourceLoaderTestModules extends HookHandler {
+class ResourceLoaderTestModules implements HookListener {
 
 	/**
 	 * @var ResourceLoader
@@ -51,7 +52,7 @@ class ResourceLoaderTestModules extends HookHandler {
 	 *
 	 * @return boolean
 	 */
-	public function process(  array &$testModules ) {
+	public function process( array &$testModules ) {
 
 		$testModules['qunit']['ext.smw.tests'] = [
 			'scripts' => [
@@ -83,8 +84,8 @@ class ResourceLoaderTestModules extends HookHandler {
 				'ext.smw.api'
 			],
 			'position' => 'top',
-			'localpath' => $this->path,
-			'remoteExtPath' => '..' . substr( $this->path, strlen( $this->ip ) ),
+			'localBasePath' => $this->path,
+			'remoteExtPath' => 'SemanticMediaWiki',
 		];
 
 		return true;

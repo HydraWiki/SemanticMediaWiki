@@ -176,7 +176,7 @@ class PropertyValueParser implements ValueParser {
 		}
 
 		// property refers to an inverse
-		if ( ( $propertyName !== '' ) && ( $propertyName { 0 } == '-' ) ) {
+		if ( ( $propertyName !== '' ) && ( $propertyName [0] == '-' ) ) {
 			$propertyName = $this->doNormalize( (string)substr( $value, 1 ), $this->isCapitalLinks );
 			/// NOTE The cast is necessary at least in PHP 5.3.3 to get string '' instead of boolean false.
 			/// NOTE It is necessary to normalize again here, since normalization may uppercase the first letter.
@@ -194,7 +194,15 @@ class PropertyValueParser implements ValueParser {
 			$text = Localizer::getInstance()->getContentLanguage()->ucfirst( $text );
 		}
 
-		return str_replace( '_', ' ', $text );
+		// Leave predefined properties untouched!
+		if ( $text !== '' && $text[0] === '_' ) {
+			return $text;
+		}
+
+		// https://www.mediawiki.org/wiki/Manual:Page_title
+		// Titles beginning or ending with a space (underscore), or containing two
+		// or more consecutive spaces (underscores).
+		return str_replace( [ '__', '_', '  ' ], ' ', $text );
 	}
 
 }

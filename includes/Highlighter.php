@@ -247,6 +247,12 @@ class Highlighter {
 			$style = [ 'style' => $this->options['style'] ];
 		}
 
+		// In case the text contains HTML, remove trailing line feeds to avoid breaking
+		// the display
+		if ( $this->options['content'] != strip_tags( $this->options['content'] ) ) {
+			$this->options['content'] = str_replace( [ "\n" ], [ '' ], $this->options['content'] );
+		}
+
 		// #1875
 		// title attribute contains stripped content to allow for a display in
 		// no-js environments, the tooltip will remove the element once it is
@@ -274,7 +280,11 @@ class Highlighter {
 				[
 					'class' => 'smwttcontent'
 				],
-				htmlspecialchars_decode( $this->options['content'] )
+				// Embedded wiki content that has other elements like (e.g. <ul>/<ol>)
+				// will make the parser go berserk (injecting <p> elements etc.)
+				// hence encode the identifying </> and decode it within the
+				// tooltip
+				str_replace( [ "\n", '<', '>' ], [ '</br>', '&lt;', '&gt;' ], htmlspecialchars_decode( $this->options['content'] ) )
 			)
 		);
 
@@ -364,7 +374,7 @@ class Highlighter {
 			$content = Message::get( [ 'smw-parse', $content ], Message::PARSE, $language );
 		}
 
-		return strip_tags( htmlspecialchars_decode( str_replace( [ "[", '&#160;' ], [ "&#91;", ' ' ], $content ) ) );
+		return strip_tags( htmlspecialchars_decode( str_replace( [ "[", '&#160;', "&#10;", "\n" ], [ "&#91;", ' ', '', '' ], $content ) ) );
 	}
 
 }

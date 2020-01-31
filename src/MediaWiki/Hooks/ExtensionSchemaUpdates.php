@@ -7,6 +7,9 @@ use Maintenance;
 use ReflectionProperty;
 use SMW\Options;
 use SMW\SQLStore\Installer;
+use SMW\StoreFactory;
+use Onoi\MessageReporter\MessageReporterFactory;
+use SMW\MediaWiki\HookListener;
 
 /**
  * Schema update to set up the needed database tables
@@ -18,7 +21,7 @@ use SMW\SQLStore\Installer;
  *
  * @author mwjames
  */
-class ExtensionSchemaUpdates {
+class ExtensionSchemaUpdates implements HookListener {
 
 	/**
 	 * @var DatabaseUpdater
@@ -35,6 +38,19 @@ class ExtensionSchemaUpdates {
 	}
 
 	/**
+	 * @since 3.1
+	 *
+	 * @param array $params
+	 */
+	public static function addMaintenanceUpdateParams( &$params ) {
+
+		// For details, see https://github.com/wikimedia/mediawiki/commit/a6facc8a0a4f9b54e0cfb1e5ef6f3991de752342
+		$params['skip-optimize'] = [
+			'desc' => 'SMW, allow to skip the table optimization during the Store setup'
+		];
+	}
+
+	/**
 	 * @since 2.0
 	 *
 	 * @return true
@@ -45,15 +61,31 @@ class ExtensionSchemaUpdates {
 
 		$options = new Options(
 			[
-				Installer::OPT_SCHEMA_UPDATE => true,
 				Installer::OPT_TABLE_OPTIMIZE => true,
-				Installer::OPT_IMPORT => true,
-				Installer::OPT_SUPPLEMENT_JOBS => true
+				Installer::RUN_IMPORT => true,
+				Installer::OPT_SUPPLEMENT_JOBS => true,
+				'verbose' => $verbose
 			]
 		);
 
 		if ( $this->hasMaintenanceArg( 'skip-optimize' ) ) {
 			$options->set( Installer::OPT_TABLE_OPTIMIZE, false );
+		}
+
+		$messageReporterFactory = new MessageReporterFactory();
+
+		$messageReporter = $messageReporterFactory->newObservableMessageReporter();
+		$messageReporter->registerReporterCallback( [ $this->updater, 'output' ] );
+
+		// Inject the instance here to avoid "Database serialization may cause
+		// problems, since the connection is not restored on wakeup." given that the
+		// DatabaseUpdater prior MW 1.31 as issues with serialization the options
+		// array.
+		$store = StoreFactory::getStore();
+		$store->setMessageReporter( $messageReporter );
+
+		if ( defined( 'MW_UPDATER' ) ) {
+			$options->set( SMW_EXTENSION_SCHEMA_UPDATER, true );
 		}
 
 		// Needs a static caller otherwise the DatabaseUpdater returns with:

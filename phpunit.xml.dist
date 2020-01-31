@@ -12,6 +12,8 @@
          stopOnIncomplete="false"
          stopOnSkipped="false"
          beStrictAboutTestsThatDoNotTestAnything="true"
+         printerClass="SMW\Tests\PHPUnitResultPrinter"
+         printerFile="tests/phpunit/PHPUnitResultPrinter.php"
          verbose="true">
     <listeners>
         <listener file="tests/phpunit/ExecutionTimeTestListener.php" class="SMW\Tests\ExecutionTimeTestListener">
@@ -55,6 +57,7 @@
     </filter>
     <php>
        <var name="smwgSemanticsEnabled" value="true"/>
+       <var name="smwgMainCacheType" value="hash"/>
        <var name="wgUseFileCache" value="false"/>
        <var name="smwgEntityCollation" value="identity"/>
        <var name="smwgFieldTypeFeatures" value="false"/>
@@ -62,10 +65,9 @@
        <var name="smwgSparqlDefaultGraph" value="http://example.org/phpunit-testrun"/>
        <var name="smwgSparqlQFeatures" value="false"/>
        <var name="smwgElasticsearchProfile" value="false"/>
-       <var name="smwgEntityLookupCacheType" value="hash"/>
        <var name="smwgEnabledDeferredUpdate" value="false"/>
        <var name="smwgImportReqVersion" value="false"/>
-       <var name="smwgEnabledFulltextSearch" value="false"/>
+       <var name="smwgEnabledFulltextSearch" value="true"/>
        <var name="smwgEnabledQueryDependencyLinksStore" value="true"/>
        <var name="smwgQueryResultCacheType" value="hash"/>
        <var name="benchmarkPageCopyCount" value="1000"/>

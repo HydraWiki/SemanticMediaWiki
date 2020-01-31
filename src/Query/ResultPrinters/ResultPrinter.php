@@ -3,8 +3,8 @@
 namespace SMW\Query\ResultPrinters;
 
 use Linker;
+use ParamProcessor\Param;
 use ParamProcessor\ParamDefinition;
-use ParserOptions;
 use Sanitizer;
 use SMW\Message;
 use SMW\Parser\RecursiveTextProcessor;
@@ -14,7 +14,6 @@ use SMWInfolink;
 use SMWOutputs as ResourceManager;
 use SMWQuery;
 use SMWQueryResult as QueryResult;
-use Title;
 
 /**
  * Abstract base class for SMW's novel query printing mechanism. It implements
@@ -50,11 +49,11 @@ abstract class ResultPrinter implements IResultPrinter {
 
 	/**
 	 * List of parameters, set by handleParameters.
-	 * param name (lower case, trimmed) => IParam object
+	 * param name (lower case, trimmed) => Param object
 	 *
 	 * @since 1.8
 	 *
-	 * @var \IParam[]
+	 * @var Param[]
 	 */
 	protected $fullParams;
 
@@ -183,21 +182,12 @@ abstract class ResultPrinter implements IResultPrinter {
 	}
 
 	/**
-	 * @since 3.0
-	 *
-	 * @param integer $queryContext
-	 */
-	public function setQueryContext( $queryContext ) {
-		$this->mInline = $queryContext != QueryContext::SPECIAL_PAGE;
-	}
-
-	/**
 	 * This method is added temporary measures to avoid breaking those that relied
 	 * on the removed ContextSource interface.
 	 *
 	 * @since 3.0
 	 *
-	 * @return Message
+	 * @return \Message
 	 */
 	public function msg() {
 		return wfMessage( func_get_args() );
@@ -224,14 +214,19 @@ abstract class ResultPrinter implements IResultPrinter {
 	}
 
 	/**
-	 * @since 3.0
+	 * @since 3.1
 	 *
-	 * @param string $text
-	 *
-	 * @return string
+	 * @return \Parser
 	 */
-	public function expandTemplates( $text ) {
-		return $this->recursiveTextProcessor->expandTemplates( $text );
+	public function copyParser() {
+
+		// Should not happen, used as fallback which in case the parser state
+		// relies on the $GLOBALS['wgParser']
+		if ( $this->recursiveTextProcessor === null ) {
+			$this->recursiveTextProcessor = new RecursiveTextProcessor();
+		}
+
+		return $this->recursiveTextProcessor->getParser();
 	}
 
 	/**
@@ -508,6 +503,7 @@ abstract class ResultPrinter implements IResultPrinter {
 	 * @param string $classAffix
 	 *
 	 * @return SMWInfolink
+	 * @throws \Exception
 	 */
 	protected function getLink( QueryResult $res, $outputMode, $classAffix = '' ) {
 		$link = $res->getQueryLink( $this->getSearchLabel( $outputMode ) );
@@ -520,9 +516,6 @@ abstract class ResultPrinter implements IResultPrinter {
 			$link->setParameter( $this->params['format'], 'format' );
 		}
 
-		/**
-		 * @var \IParam $param
-		 */
 		foreach ( $this->fullParams as $param ) {
 			if ( !$param->wasSetToDefault() && !( $param->getName() == 'limit' && $param->getValue() === 0 ) ) {
 				$link->setParameter( $param->getOriginalValue(), $param->getName() );
@@ -541,6 +534,7 @@ abstract class ResultPrinter implements IResultPrinter {
 	 * @param $outputMode
 	 *
 	 * @return SMWInfolink
+	 * @throws \Exception
 	 */
 	protected function getFurtherResultsLink( QueryResult $res, $outputMode ) {
 		$link = $this->getLink( $res, $outputMode, 'furtherresults' );
@@ -600,7 +594,7 @@ abstract class ResultPrinter implements IResultPrinter {
 	 *
 	 * @since 3.0
 	 *
-	 * @return []
+	 * @return array[]
 	 */
 	protected function getResources() {
 		return [ 'modules' => [], 'styles' => [] ];
@@ -682,27 +676,6 @@ abstract class ResultPrinter implements IResultPrinter {
 	 */
 	public function getParamDefinitions( array $definitions ) {
 		return array_merge( $definitions, $this->getParameters() );
-	}
-
-	/**
-	 * Returns the parameter definitions as an associative array where
-	 * the keys hold the parameter names and point to their full definitions.
-	 * array( name => array|IParamDefinition )
-	 *
-	 * @since 1.8
-	 *
-	 * @param array $definitions List of definitions to prepend to the result printers list before further processing.
-	 *
-	 * @return array
-	 */
-	public final function getNamedParameters( array $definitions = [] ) {
-		$params = [];
-
-		foreach ( $this->getParamDefinitions( $definitions ) as $param ) {
-			$params[is_array( $param ) ? $param['name'] : $param->getName()] = $param;
-		}
-
-		return $params;
 	}
 
 	/**

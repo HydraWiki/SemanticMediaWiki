@@ -34,6 +34,29 @@ class TableFieldUpdater {
 	}
 
 	/**
+	 * @since 3.1
+	 *
+	 * @param integer $id
+	 * @param string $tz
+	 */
+	public function updateTouchedField( $id, $tz = 0 ) {
+
+		$connection = $this->store->getConnection( 'mw.db' );
+		$connection->beginAtomicTransaction( __METHOD__ );
+
+		$connection->update(
+			SQLStore::ID_TABLE,
+			[
+				'smw_touched' => $connection->timestamp( $tz )
+			],
+			[ 'smw_id' => $id ],
+			__METHOD__
+		);
+
+		$connection->endAtomicTransaction( __METHOD__ );
+	}
+
+	/**
 	 * @since 3.0
 	 *
 	 * @param integer $id
@@ -55,7 +78,8 @@ class TableFieldUpdater {
 			SQLStore::ID_TABLE,
 			[
 				'smw_sortkey' => $searchKey,
-				'smw_sort'    => $this->collator->getSortKey( $searchKey )
+				'smw_sort'    => $this->collator->getSortKey( $searchKey ),
+				'smw_touched' => $connection->timestamp()
 			],
 			[ 'smw_id' => $id ],
 			__METHOD__
@@ -67,8 +91,8 @@ class TableFieldUpdater {
 	/**
 	 * @since 3.0
 	 *
-	 * @param integer $id
-	 * @param intege $rev_id
+	 * @param integer $sid
+	 * @param integer $rev_id
 	 */
 	public function updateRevField( $sid, $rev_id ) {
 
@@ -77,7 +101,32 @@ class TableFieldUpdater {
 		$connection->update(
 			SQLStore::ID_TABLE,
 			[
-				'smw_rev' => $rev_id
+				'smw_rev' => $rev_id,
+				'smw_touched' => $connection->timestamp()
+			],
+			[
+				'smw_id' => $sid
+			],
+			__METHOD__
+		);
+	}
+
+	/**
+	 * @since 3.1
+	 *
+	 * @param integer $sid
+	 * @param string $iw
+	 * @param string $hash
+	 */
+	public function updateIwField( $sid, $iw, $hash ) {
+
+		$connection = $this->store->getConnection( 'mw.db' );
+
+		$connection->update(
+			SQLStore::ID_TABLE,
+			[
+				'smw_iw' => $iw,
+				'smw_hash' => $hash
 			],
 			[
 				'smw_id' => $sid

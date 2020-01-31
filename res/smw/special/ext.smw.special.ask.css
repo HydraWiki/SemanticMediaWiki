@@ -56,6 +56,10 @@ div#query legend {
 	font-weight:bold;
 }
 
+#ask-change-info {
+	margin-top: 15px;
+}
+
 .smw-ask-toplinks {
 	padding: 0px 5px 5px 0px;
 	padding: 8px 15px;
@@ -193,7 +197,7 @@ div#query legend {
 display: inline-block;
     padding: .30em .55em;
     margin-left: -1px;
-    margin-right: 10px;
+    margin-right: 0px;
     line-height: 1.25;
     color: #007bff;
     background-color: #fff;
@@ -582,7 +586,8 @@ display: inline-block;
 }
 
 .clipboard.smw-icon-bookmark {
-	padding: 0 0 0 60px;
+	padding: 0 0 0 40px;
+	vertical-align: top;
 }
 
 .smw-tabs input.nav-tab:checked + label.nav-label.compact-action {
@@ -592,6 +597,23 @@ display: inline-block;
 /**
  * Responsive settings (#see smw.table.css)
  */
+@media screen and (max-width: 920px) {
+
+	.smw-ask-actions-nav {
+		flex-direction: column;
+	}
+
+	.smw-ask-downloadlinks {
+		margin-top: 10px;
+		margin-left: 0px;
+	}
+
+	.smw-ask-downloadlinks.float-right {
+		clear:both;
+		float:unset;
+	}
+}
+
 @media screen and (max-width: 800px) {
 	.smw-table-row .smw-table-cell {
 		width: auto !important;
@@ -612,11 +634,6 @@ display: inline-block;
 		border-right: 0;
 	}
 
-	.smw-ask-downloadlinks.float-right {
-		clear:both;
-		float:unset;
-	}
-
 	.smw-ask-button {
 		display: flex;
 		margin-bottom: 10px;
@@ -627,15 +644,6 @@ display: inline-block;
 		margin-bottom: 10px;
 	}
 
-	.smw-ask-actions-nav {
-		flex-direction: column;
-	}
-
-	.smw-ask-downloadlinks {
-		margin-top: 10px;
-		margin-left: 0px;
-	}
-
 	.smw-ask-button input, .smw-ask-button-right input, .smw-ask-button a, .smw-ask-button-right a, #embed_show a, #embed_hide a {
 		width: 100%;
 		text-align: center;
@@ -644,6 +652,10 @@ display: inline-block;
 	.smw-ask-format-selector {
 		display: inline-block;
 		margin-bottom: 0;
+	}
+
+	.smw-tabs label.nav-label.smw-tab-right {
+		display: none;
 	}
 }
 

@@ -6,7 +6,7 @@
 [![Latest Stable Version](https://poser.pugx.org/mediawiki/semantic-media-wiki/version.png)](https://packagist.org/packages/mediawiki/semantic-media-wiki)
 [![Packagist download count](https://poser.pugx.org/mediawiki/semantic-media-wiki/d/total.png)](https://packagist.org/packages/mediawiki/semantic-media-wiki)
 
-Semantic MediaWiki (a.k.a. SMW) is a free, open-source extension to [MediaWiki](https://www.semantic-mediawiki.org/wiki/MediaWiki) – the wiki software that
+**Semantic MediaWiki** (a.k.a. SMW) is a free, open-source extension to [MediaWiki](https://www.semantic-mediawiki.org/wiki/MediaWiki) – the wiki software that
 powers Wikipedia – that lets you store and query data within the wiki's pages.
 
 Semantic MediaWiki is also a full-fledged framework, in conjunction with
@@ -20,8 +20,8 @@ browse the [wiki](https://www.semantic-mediawiki.org) for a more comprehensive i
 
 ## Requirements
 
-- PHP 5.6 or later
-- MediaWiki 1.27 or later
+- PHP 7.0 to PHP 7.3
+- MediaWiki 1.31 to 1.33
 - MySQL 5+, SQLite 3+ or PostgreSQL 9.x
 
 A list of supported PHP versions, MediaWiki versions and database systems per Semantic MediaWiki
@@ -41,12 +41,12 @@ to the version of the code it comes bundled with. The most important files are l
 
 * [User documentation](docs/README.md)
 * [Technical documentation](docs/technical/README.md)
+* [Hacking Semantic MediaWiki](docs/architecture/README.md)
 
 ## Contribution and support
 
 [![Twitter](https://www.semantic-mediawiki.org/w/images/c/c9/Twitter_icon.jpg)](https://twitter.com/#!/semanticmw)
 [![Facebook](https://www.semantic-mediawiki.org/w/images/thumb/7/77/677166248.png/30px-677166248.png)](https://www.facebook.com/pages/Semantic-MediaWiki/160459700707245)
-[![Google+](https://www.semantic-mediawiki.org/w/images/a/ae/30px-Google%2B.png)](https://plus.google.com/115301028320198614441/posts)
 
 Many people have contributed to SMW. A list of people who have made contributions in the past can
 be found [here][contributors] or on the [wiki for Semantic MediaWiki](https://www.semantic-mediawiki.org/wiki/Help:SMW_Project#Contributors).
@@ -62,7 +62,6 @@ have a look at the contribution guideline.
 * [File an issue](https://github.com/SemanticMediaWiki/SemanticMediaWiki/issues)
 * [Submit a pull request](https://github.com/SemanticMediaWiki/SemanticMediaWiki/pulls)
 * Ask a question on [the mailing list](https://www.semantic-mediawiki.org/wiki/Mailing_list)
-* Ask a question on the #semantic-mediawiki IRC channel on Freenode.
 
 ## Tests
 

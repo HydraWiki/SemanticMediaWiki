@@ -49,21 +49,24 @@ abstract class FileExportPrinter extends ResultPrinter implements ExportPrinter 
 	 * @param array $params
 	 */
 	public function outputAsFile( SMWQueryResult $queryResult, array $params ) {
-		$result = $this->getResult( $queryResult, $params, SMW_OUTPUT_FILE );
 
-		if ( $this->httpHeader ) {
-			header( 'Content-type: ' . $this->getMimeType( $queryResult ) . '; charset=UTF-8' );
-		}
+		$result = $this->getFileResult( $queryResult, $params );
 
-		$fileName = $this->getFileName( $queryResult );
+		$this->httpHeader(
+			'Content-type: ' . $this->getMimeType( $queryResult ) . '; charset=UTF-8'
+		);
+
+		$fileName = $this->getFileName(
+			$queryResult
+		);
 
 		if ( $fileName !== false ) {
 			$utf8Name = rawurlencode( $fileName );
 			$fileName = iconv( "UTF-8", "ASCII//TRANSLIT", $fileName );
 
-			if ( $this->httpHeader ) {
-				header( "content-disposition: attachment; filename=\"$fileName\"; filename*=UTF-8''$utf8Name;" );
-			}
+			$this->httpHeader(
+				"content-disposition: attachment; filename=\"$fileName\"; filename*=UTF-8''$utf8Name;"
+			);
 		}
 
 		echo $result;
@@ -92,6 +95,19 @@ abstract class FileExportPrinter extends ResultPrinter implements ExportPrinter 
 	 */
 	public function getQueryMode( $mode ) {
 		return $mode == SMWQueryProcessor::SPECIAL_PAGE ? SMWQuery::MODE_INSTANCES : SMWQuery::MODE_NONE;
+	}
+
+	/**
+	 * `ResultPrinter::getResult` is marked as final making any attempt to test
+	 * this method futile hence we isolate its access to ensure to be able to
+	 * verify the access sequence (#4375).
+	 */
+	protected function getFileResult( $queryResult, $params ) {
+		return $this->getResult( $queryResult, $params, SMW_OUTPUT_FILE );
+	}
+
+	private function httpHeader( $string ) {
+		$this->httpHeader ? header( $string ) : '';
 	}
 
 }

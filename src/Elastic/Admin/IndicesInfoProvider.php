@@ -5,6 +5,7 @@ namespace SMW\Elastic\Admin;
 use Html;
 use SMW\Message;
 use WebRequest;
+use SMW\Utils\HtmlTabs;
 
 /**
  * @license GNU GPL v2+
@@ -83,19 +84,89 @@ class IndicesInfoProvider extends InfoProviderHandler {
 
 		$this->outputFormatter->addHtml( $html );
 
-		$this->outputFormatter->addHtml( '<h2>Indices</h2>' );
-
 		$indices = $connection->cat( 'indices' );
 		ksort( $indices );
 
-		$this->outputFormatter->addAsPreformattedText(
-			$this->outputFormatter->encodeAsJson( $indices )
+		$htmlTabs = new HtmlTabs();
+		$htmlTabs->setGroup( 'es-indices' );
+		$htmlTabs->setActiveTab( 'indices' );
+
+		$htmlTabs->tab(
+			'indices',
+			$this->msg( 'smw-admin-supplementary-elastic-indices-title' )
 		);
 
-		$this->outputFormatter->addHtml( '<h2>Statistics</h2>' );
+		$htmlTabs->content(
+			'indices',
+			$this->getJsonView( 'indices' ,$this->outputFormatter->encodeAsJson( $indices ), 3 )
+		);
 
-		$this->outputFormatter->addAsPreformattedText(
-			$this->outputFormatter->encodeAsJson( $connection->stats( 'indices' ) )
+		$htmlTabs->tab(
+			'statistics',
+			$this->msg( 'smw-admin-supplementary-elastic-statistics-title' )
+		);
+
+		$htmlTabs->content(
+			'statistics',
+			$this->getJsonView( 'statistics', $this->outputFormatter->encodeAsJson( $connection->stats( 'indices' ) ), 2 )
+		);
+
+		$html = $htmlTabs->buildHTML( [ 'class' => 'es-indices' ] );
+
+		$this->outputFormatter->addHtml(
+			$html
+		);
+
+		$this->outputFormatter->addInlineStyle(
+			'.es-indices #tab-indices:checked ~ #tab-content-indices,' .
+			'.es-indices #tab-statistics:checked ~ #tab-content-statistics {' .
+			'display: block;}'
+		);
+	}
+
+	private function getJsonView( $id, $data, $level = 1 ) {
+
+		$placeholder = Html::rawElement(
+			'div',
+			[
+				'class' => 'smw-schema-placeholder-message',
+			],
+			$this->msg( 'smw-data-lookup-with-wait' ) .
+			"\n\n\n" .$this->msg( 'smw-preparing' ) . "\n"
+		) .	Html::rawElement(
+			'span',
+			[
+				'class' => 'smw-overlay-spinner medium',
+				'style' => 'transform: translate(-50%, -50%);'
+			]
+		);
+
+		return Html::rawElement(
+				'div',
+				[
+					'id' => 'smw-admin-configutation-json',
+					'class' => '',
+				],
+				Html::rawElement(
+					'div',
+					[
+						'class' => 'smw-jsonview-menu',
+					]
+				) . Html::rawElement(
+					'pre',
+					[
+						'id' => "smw-json-container-$id",
+						'class' => 'smw-json-container smw-json-placeholder',
+						'data-level' => $level
+					],
+					$placeholder . Html::rawElement(
+						'div',
+						[
+							'class' => 'smw-json-data'
+						],
+						$data
+				)
+			)
 		);
 	}
 

@@ -3,11 +3,12 @@
 namespace SMW\Importer\ContentCreators;
 
 use ContentHandler;
-use Onoi\MessageReporter\MessageReporter;
+use Onoi\MessageReporter\MessageReporterAwareTrait;
 use SMW\Importer\ContentCreator;
 use SMW\Importer\ImportContents;
 use SMW\MediaWiki\Database;
-use SMW\MediaWiki\PageCreator;
+use SMW\MediaWiki\TitleFactory;
+use SMW\Utils\CliMsgFormatter;
 use Title;
 
 /**
@@ -18,15 +19,12 @@ use Title;
  */
 class TextContentCreator implements ContentCreator {
 
-	/**
-	 * @var MessageReporter
-	 */
-	private $messageReporter;
+	use MessageReporterAwareTrait;
 
 	/**
-	 * @var PageCreator
+	 * @var TitleFactory
 	 */
-	private $pageCreator;
+	private $titleFactory;
 
 	/**
 	 * @var Database
@@ -36,23 +34,12 @@ class TextContentCreator implements ContentCreator {
 	/**
 	 * @since 2.5
 	 *
-	 * @param PageCreator $pageCreator
+	 * @param TitleFactory $titleFactory
 	 * @param Database $connection
 	 */
-	public function __construct( PageCreator $pageCreator, Database $connection ) {
-		$this->pageCreator = $pageCreator;
+	public function __construct( TitleFactory $titleFactory, Database $connection ) {
+		$this->titleFactory = $titleFactory;
 		$this->connection = $connection;
-	}
-
-	/**
-	 * @see MessageReporterAware::setMessageReporter
-	 *
-	 * @since 2.5
-	 *
-	 * @param MessageReporter $messageReporter
-	 */
-	public function setMessageReporter( MessageReporter $messageReporter ) {
-		$this->messageReporter = $messageReporter;
 	}
 
 	/**
@@ -75,43 +62,82 @@ class TextContentCreator implements ContentCreator {
 			return $this->messageReporter->reportMessage( "\nContentHandler doesn't exist therefore importing is not possible.\n" );
 		}
 
+		$cliMsgFormatter = new CliMsgFormatter();
+
 		$indent = '   ...';
+		$indent_e = '      ';
 		$name = $importContents->getName();
 
 		if ( $name === '' ) {
-			return $this->messageReporter->reportMessage( "$indent no valid page name, abort import." );
+			return $this->messageReporter->reportMessage(
+				$cliMsgFormatter->oneCol( "... no valid page name, abort import.", 3 )
+			);
 		}
 
-		$title = Title::newFromText(
+		$title = $this->titleFactory->newFromText(
 			$name,
 			$importContents->getNamespace()
 		);
 
 		if ( $title === null ) {
-			return $this->messageReporter->reportMessage( "$indent $name returned with a null title, abort import." );
+			return $this->messageReporter->reportMessage(
+				$cliMsgFormatter->oneCol( "... $name returned with a null title, abort import.", 3 )
+			);
 		}
 
+		$page = $this->titleFactory->createPage( $title );
 		$prefixedText = $title->getPrefixedText();
 
-		if ( $title->exists() && !$importContents->getOption( 'canReplace' ) && !$importContents->getOption( 'replaceable' ) ) {
-			return $this->messageReporter->reportMessage( "$indent skipping $prefixedText, already exists ...\n" );
+		$replaceable = false;
+		$action = '';
+
+		if ( $importContents->getOption( 'canReplace' ) ) {
+			$replaceable = $importContents->getOption( 'canReplace' );
+		} elseif( $importContents->getOption( 'replaceable' ) ) {
+			$replaceable = $importContents->getOption( 'replaceable' );
+		}
+
+		if ( isset( $replaceable['LAST_EDITOR'] ) && $replaceable['LAST_EDITOR'] === 'IS_IMPORTER' ) {
+			$replaceable = $this->isCreatorLastEditor( $page );
+		}
+
+		if ( $title->exists() && !$replaceable ) {
+			return $this->messageReporter->reportMessage(
+				$cliMsgFormatter->twoCols( "... $prefixedText ...", '[EXISTS,SKIP]', 3 )
+			);
+		} elseif( $title->exists() && $replaceable ) {
+			$action = 'EXISTS,REPLACE';
+
+			$this->messageReporter->reportMessage(
+				$cliMsgFormatter->firstCol( "... $prefixedText ...", 3 )
+			);
 		} elseif( $title->exists() ) {
-			$this->messageReporter->reportMessage( "$indent replacing $prefixedText contents ...\n" );
+			$action = 'EXISTS,REPLACE';
+
+			$this->messageReporter->reportMessage(
+				$cliMsgFormatter->firstCol( "... $prefixedText ...", 3 )
+			);
 		} else {
-			$this->messageReporter->reportMessage( "$indent creating $prefixedText contents ...\n" );
+			$action = 'CREATE';
+
+			$this->messageReporter->reportMessage(
+				$cliMsgFormatter->firstCol( "... $prefixedText ...", 3 )
+			);
 		}
 
 		// Avoid a possible "Notice: WikiPage::doEditContent: Transaction already
 		// in progress (from DatabaseUpdater::doUpdates), performing implicit
 		// commit ..."
-		$this->connection->onTransactionIdle( function() use ( $title, $importContents ) {
-			$this->doCreateContent( $title, $importContents );
+		$this->connection->onTransactionIdle( function() use ( $page, $title, $importContents ) {
+			$this->doCreateContent( $page, $title, $importContents );
 		} );
+
+		$this->messageReporter->reportMessage(
+			$cliMsgFormatter->secondCol( "[$action]" )
+		);
 	}
 
-	private function doCreateContent( $title, $importContents ) {
-
-		$page = $this->pageCreator->createPage( $title );
+	private function doCreateContent( $page, $title, $importContents ) {
 
 		$content = ContentHandler::makeContent(
 			$this->fetchContents( $importContents ),
@@ -145,6 +171,25 @@ class TextContentCreator implements ContentCreator {
 				true
 			)
 		);
+	}
+
+	private function isCreatorLastEditor( $page ) {
+
+		$lastEditor = \User::newFromID(
+			$page->getUser()
+		);
+
+		if ( !$lastEditor instanceof \User ) {
+			return false;
+		}
+
+		$creator = $page->getCreator();
+
+		if ( !$creator instanceof \User ) {
+			return false;
+		}
+
+		return $creator->equals( $lastEditor );
 	}
 
 }

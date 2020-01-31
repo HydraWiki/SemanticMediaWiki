@@ -24,6 +24,7 @@ class PropertyTableUpdaterTest extends \PHPUnit_Framework_TestCase {
 	private $connection;
 	private $propertyTable;
 	private $propertyStatisticsStore;
+	private $propertyChangeListener;
 
 	protected function setUp() {
 		parent::setUp();
@@ -32,7 +33,7 @@ class PropertyTableUpdaterTest extends \PHPUnit_Framework_TestCase {
 			->disableOriginalConstructor()
 			->getMock();
 
-		$this->idTable = $this->getMockBuilder( '\SMWSql3SmwIds' )
+		$this->idTable = $this->getMockBuilder( '\SMW\SQLStore\EntityStore\EntityIdManager' )
 			->disableOriginalConstructor()
 			->getMock();
 
@@ -53,6 +54,10 @@ class PropertyTableUpdaterTest extends \PHPUnit_Framework_TestCase {
 			->getMock();
 
 		$this->propertyStatisticsStore = $this->getMockBuilder( '\SMW\SQLStore\PropertyStatisticsStore' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$this->propertyChangeListener = $this->getMockBuilder( '\SMW\Listener\ChangeListener\ChangeListeners\PropertyChangeListener' )
 			->disableOriginalConstructor()
 			->getMock();
 	}
@@ -111,11 +116,64 @@ class PropertyTableUpdaterTest extends \PHPUnit_Framework_TestCase {
 
 		$this->propertyStatisticsStore->expects( $this->once() )
 			->method( 'addToUsageCounts' )
-			 ->with( $this->equalTo( [ 99998 => -1, 99999 => 1 ] ) );
+			->with( $this->equalTo( [ 99998 => -1, 99999 => 1 ] ) );
 
 		$instance = new PropertyTableUpdater(
 			$this->store,
 			$this->propertyStatisticsStore
+		);
+
+		$instance->setPropertyChangeListener(
+			$this->propertyChangeListener
+		);
+
+		$params = new Parameters(
+			[
+				'insert_rows' => [
+					'table_foo' => [
+						[ 's_id' => 1001, 'p_id' => 99999 ]
+					]
+				],
+				'delete_rows' => [
+					'table_foo' => [
+						[ 's_id' => 1001, 'p_id' => 99998 ]
+					]
+				],
+				'new_hashes'  => []
+			]
+		);
+
+		$instance->update( 42, $params );
+	}
+
+	public function testUpdate_Touched() {
+
+		$this->connection->expects( $this->once() )
+			->method( 'timestamp' )
+			->will( $this->returnValue( '19700101000000' ) );
+
+		$this->connection->expects( $this->once() )
+			->method( 'update' )
+			->with(
+				$this->anything(),
+				$this->equalTo( [ 'smw_touched' => '19700101000000' ] ),
+				$this->equalTo( [ 'smw_id' => [ 1001, 99999, 99998 ] ] ) );
+
+		$this->propertyTable->expects( $this->any() )
+			->method( 'usesIdSubject' )
+			->will( $this->returnValue( true ) );
+
+		$this->store->expects( $this->any() )
+			->method( 'getPropertyTables' )
+			->will( $this->returnValue( [ 'table_foo' => $this->propertyTable ] ) );
+
+		$instance = new PropertyTableUpdater(
+			$this->store,
+			$this->propertyStatisticsStore
+		);
+
+		$instance->setPropertyChangeListener(
+			$this->propertyChangeListener
 		);
 
 		$params = new Parameters(

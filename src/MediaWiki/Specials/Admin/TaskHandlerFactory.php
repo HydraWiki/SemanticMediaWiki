@@ -3,7 +3,25 @@
 namespace SMW\MediaWiki\Specials\Admin;
 
 use SMW\MediaWiki\Renderer\HtmlFormRenderer;
+use SMW\MediaWiki\Specials\Admin\Maintenance\DataRefreshJobTaskHandler;
+use SMW\MediaWiki\Specials\Admin\Maintenance\DisposeJobTaskHandler;
+use SMW\MediaWiki\Specials\Admin\Maintenance\FulltextSearchTableRebuildJobTaskHandler;
+use SMW\MediaWiki\Specials\Admin\Maintenance\PropertyStatsRebuildJobTaskHandler;
+use SMW\MediaWiki\Specials\Admin\Maintenance\TableSchemaTaskHandler;
+use SMW\MediaWiki\Specials\Admin\Supplement\CacheStatisticsListTaskHandler;
+use SMW\MediaWiki\Specials\Admin\Supplement\ConfigurationListTaskHandler;
+use SMW\MediaWiki\Specials\Admin\Supplement\DuplicateLookupTaskHandler;
+use SMW\MediaWiki\Specials\Admin\Supplement\EntityLookupTaskHandler;
+use SMW\MediaWiki\Specials\Admin\Supplement\OperationalStatisticsListTaskHandler;
+use SMW\MediaWiki\Specials\Admin\Supplement\TableStatisticsTaskHandler;
+use SMW\MediaWiki\Specials\Admin\Alerts\DeprecationNoticeTaskHandler;
+use SMW\MediaWiki\Specials\Admin\Alerts\MaintenanceAlertsTaskHandler;
+use SMW\MediaWiki\Specials\Admin\Alerts\LastOptimizationRunMaintenanceAlertTaskHandler;
+use SMW\MediaWiki\Specials\Admin\Alerts\OutdatedEntitiesMaxCountThresholdMaintenanceAlertTaskHandler;
 use SMW\Store;
+use SMW\SetupFile;
+use SMw\ApplicationFactory;
+use SMW\Utils\FileFetcher;
 
 /**
  * @license GNU GPL v2+
@@ -49,23 +67,14 @@ class TaskHandlerFactory {
 	public function getTaskHandlerList( $user, $adminFeatures ) {
 
 		$taskHandlers = [
-			// TaskHandler::SECTION_SCHEMA
-			$this->newTableSchemaTaskHandler(),
+			// TaskHandler::SECTION_MAINTENANCE
+			$this->newMaintenanceTaskHandler( $adminFeatures ),
 
-			// TaskHandler::SECTION_DATAREPAIR
-			$this->newDataRefreshJobTaskHandler(),
-			$this->newDisposeJobTaskHandler(),
-			$this->newPropertyStatsRebuildJobTaskHandler(),
-			$this->newFulltextSearchTableRebuildJobTaskHandler(),
-
-			// TaskHandler::SECTION_DEPRECATION
-			$this->newDeprecationNoticeTaskHandler(),
+			// TaskHandler::SECTION_ALERTS
+			$this->newAlertsTaskHandler( $adminFeatures ),
 
 			// TaskHandler::SECTION_SUPPLEMENT
-			$this->newConfigurationListTaskHandler(),
-			$this->newOperationalStatisticsListTaskHandler(),
-			$this->newDuplicateLookupTaskHandler(),
-			$this->newEntityLookupTaskHandler( $user ),
+			$this->newSupplementTaskHandler( $adminFeatures, $user ),
 
 			// TaskHandler::SECTION_SUPPORT
 			$this->newSupportListTaskHandler()
@@ -74,9 +83,8 @@ class TaskHandlerFactory {
 		\Hooks::run( 'SMW::Admin::TaskHandlerFactory', [ &$taskHandlers, $this->store, $this->outputFormatter, $user ] );
 
 		$taskHandlerList = [
-			TaskHandler::SECTION_SCHEMA => [],
-			TaskHandler::SECTION_DATAREPAIR => [],
-			TaskHandler::SECTION_DEPRECATION => [],
+			TaskHandler::SECTION_MAINTENANCE => [],
+			TaskHandler::SECTION_ALERTS => [],
 			TaskHandler::SECTION_SUPPLEMENT => [],
 			TaskHandler::SECTION_SUPPORT => [],
 			'actions' => []
@@ -88,7 +96,7 @@ class TaskHandlerFactory {
 				continue;
 			}
 
-			$taskHandler->setEnabledFeatures(
+			$taskHandler->setFeatureSet(
 				$adminFeatures
 			);
 
@@ -97,14 +105,11 @@ class TaskHandlerFactory {
 			);
 
 			switch ( $taskHandler->getSection() ) {
-				case TaskHandler::SECTION_SCHEMA:
-					$taskHandlerList[TaskHandler::SECTION_SCHEMA][] = $taskHandler;
+				case TaskHandler::SECTION_MAINTENANCE:
+					$taskHandlerList[TaskHandler::SECTION_MAINTENANCE][] = $taskHandler;
 					break;
-				case TaskHandler::SECTION_DATAREPAIR:
-					$taskHandlerList[TaskHandler::SECTION_DATAREPAIR][] = $taskHandler;
-					break;
-				case TaskHandler::SECTION_DEPRECATION:
-					$taskHandlerList[TaskHandler::SECTION_DEPRECATION][] = $taskHandler;
+				case TaskHandler::SECTION_ALERTS:
+					$taskHandlerList[TaskHandler::SECTION_ALERTS][] = $taskHandler;
 					break;
 				case TaskHandler::SECTION_SUPPLEMENT:
 					$taskHandlerList[TaskHandler::SECTION_SUPPLEMENT][] = $taskHandler;
@@ -114,7 +119,7 @@ class TaskHandlerFactory {
 					break;
 			}
 
-			if ( $taskHandler->hasAction() ) {
+			if ( $taskHandler instanceof ActionableTask ) {
 				$taskHandlerList['actions'][] = $taskHandler;
 			}
 		}
@@ -141,6 +146,37 @@ class TaskHandlerFactory {
 	}
 
 	/**
+	 * @since 3.1
+	 *
+	 * @param integer $adminFeatures
+	 * @param User|null $user
+	 *
+	 * @return SupplementTaskHandler
+	 */
+	public function newSupplementTaskHandler( $adminFeatures = 0 , $user = null ) {
+
+		$settings = ApplicationFactory::getInstance()->getSettings();
+
+		$taskHandlers = [
+			$this->newConfigurationListTaskHandler(),
+			$this->newOperationalStatisticsListTaskHandler(),
+			$this->newDuplicateLookupTaskHandler(),
+			$this->newEntityLookupTaskHandler( $user ),
+		];
+
+		foreach ( $taskHandlers as $taskHandler ) {
+			$taskHandler->setFeatureSet( $adminFeatures );
+		}
+
+		$supplementTaskHandler = new SupplementTaskHandler(
+			$this->outputFormatter,
+			$taskHandlers
+		);
+
+		return $supplementTaskHandler;
+	}
+
+	/**
 	 * @since 2.5
 	 *
 	 * @return ConfigurationListTaskHandler
@@ -156,11 +192,46 @@ class TaskHandlerFactory {
 	 */
 	public function newOperationalStatisticsListTaskHandler() {
 
+		$entityCache = ApplicationFactory::getInstance()->getEntityCache();
+
 		$taskHandlers = [
-			new CacheStatisticsListTaskHandler( $this->outputFormatter )
+			new CacheStatisticsListTaskHandler( $this->outputFormatter ),
+			new TableStatisticsTaskHandler( $this->outputFormatter, $entityCache )
 		];
 
 		return new OperationalStatisticsListTaskHandler( $this->outputFormatter, $taskHandlers );
+	}
+
+	/**
+	 * @since 3.1
+	 *
+	 * @param integer $adminFeatures
+	 *
+	 * @return MaintenanceTaskHandler
+	 */
+	public function newMaintenanceTaskHandler( $adminFeatures = 0 ) {
+
+		$settings = ApplicationFactory::getInstance()->getSettings();
+
+		$taskHandlers = [
+			$this->newTableSchemaTaskHandler(),
+			$this->newDataRefreshJobTaskHandler(),
+			$this->newDisposeJobTaskHandler(),
+			$this->newPropertyStatsRebuildJobTaskHandler(),
+			$this->newFulltextSearchTableRebuildJobTaskHandler()
+		];
+
+		foreach ( $taskHandlers as $taskHandler ) {
+			$taskHandler->setFeatureSet( $adminFeatures );
+		}
+
+		$maintenanceTaskHandler = new MaintenanceTaskHandler(
+			$this->outputFormatter,
+			new FileFetcher( $settings->get( 'smwgMaintenanceDir' ) ),
+			$taskHandlers
+		);
+
+		return $maintenanceTaskHandler;
 	}
 
 	/**
@@ -219,6 +290,39 @@ class TaskHandlerFactory {
 		return new FulltextSearchTableRebuildJobTaskHandler( $this->htmlFormRenderer, $this->outputFormatter );
 	}
 
+	/**
+	 * @since 3.2
+	 *
+	 * @param integer $adminFeatures
+	 *
+	 * @return AlertsTaskHandler
+	 */
+	public function newAlertsTaskHandler( $adminFeatures = 0 ) {
+
+		$maintenanceAlertsTaskHandlers = [
+			new LastOptimizationRunMaintenanceAlertTaskHandler(
+				new SetupFile()
+			),
+			new OutdatedEntitiesMaxCountThresholdMaintenanceAlertTaskHandler(
+				$this->store
+			)
+		];
+
+		$maintenanceAlertsTaskHandler = new MaintenanceAlertsTaskHandler(
+			$maintenanceAlertsTaskHandlers
+		);
+
+		$maintenanceAlertsTaskHandler->setFeatureSet(
+			$adminFeatures
+		);
+
+		$taskHandlers = [
+			$this->newDeprecationNoticeTaskHandler(),
+			$maintenanceAlertsTaskHandler
+		];
+
+		return new AlertsTaskHandler( $this->outputFormatter, $taskHandlers );
+	}
 	/**
 	 * @since 3.0
 	 *

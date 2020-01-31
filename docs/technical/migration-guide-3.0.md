@@ -22,7 +22,7 @@ For details also see the [change description.](https://gist.github.com/s7eph4n/2
 
 ### Maintenance scripts
 
-- If you are still using maintenance scripts starting with the `SMW_` prefix you must now migrate to the new maintenance spript names. See the help pages on [maintenance scrips](https://www.semantic-mediawiki.org/wiki/Help:Maintenance_scripts) for further information.
+- If you are still using maintenance scripts starting with the `SMW_` prefix you must now migrate to the new maintenance script names. See the help pages on [maintenance scrips](https://www.semantic-mediawiki.org/wiki/Help:Maintenance_scripts) for further information.
 
 ### Resources export
 
@@ -40,6 +40,10 @@ For details also see the [change description.](https://gist.github.com/s7eph4n/2
 - Removed `DIProperty::registerPropertyAlias`, deprecated since 2.1, use PropertyRegistry::registerPropertyAlias
 - Deprecated `PropertyValue::makeUserProperty`, use DataValueFactory::getInstance()->newPropertyValueByLabel;
 - Removed `PropertyValue::makeProperty`, use DataValueFactory
+
+### Result formats
+
+- Removed `RequestContext` from the `ResultPrinter` class; If for some reason someone requires access to the `RequestContext` then it is suggested to use `RequestContext::getMain()`.
 
 ### Hooks
 

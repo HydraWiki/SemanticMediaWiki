@@ -3,6 +3,7 @@
 namespace SMW;
 
 use RuntimeException;
+use SMW\Exception\DataItemException;
 use SMW\Exception\DataTypeLookupException;
 use SMW\Exception\PredefinedPropertyLabelMismatchException;
 use SMW\Exception\PropertyLabelNotResolvedException;
@@ -85,11 +86,11 @@ class DIProperty extends SMWDataItem {
 	 */
 	public function __construct( $key, $inverse = false ) {
 
-		if ( ( $key === '' ) || ( $key{0} == '-' ) ) {
+		if ( ( $key === '' ) || ( $key[0] == '-' ) ) {
 			throw new PropertyLabelNotResolvedException( "Illegal property key \"$key\"." );
 		}
 
-		if ( $key{0} == '_' ) {
+		if ( $key[0] == '_' ) {
 			if ( !PropertyRegistry::getInstance()->isRegistered( $key ) ) {
 				throw new PredefinedPropertyLabelMismatchException( "There is no predefined property with \"$key\"." );
 			}
@@ -118,6 +119,15 @@ class DIProperty extends SMWDataItem {
 	 */
 	public function isInverse() {
 		return $this->m_inverse;
+	}
+
+	/**
+	 * @since 3.1
+	 *
+	 * @return string
+	 */
+	public function getSha1() {
+		return sha1( json_encode( [ $this->m_key, SMW_NS_PROPERTY, '', '' ] ) );
 	}
 
 	/**
@@ -160,7 +170,7 @@ class DIProperty extends SMWDataItem {
 	 * @return boolean
 	 */
 	public function isUserDefined() {
-		return $this->m_key{0} != '_';
+		return $this->m_key[0] != '_';
 	}
 
 	/**
@@ -419,7 +429,7 @@ class DIProperty extends SMWDataItem {
 	public static function doUnserialize( $serialization ) {
 		$inverse = false;
 
-		if ( $serialization{0} == '-' ) {
+		if ( $serialization[0] == '-' ) {
 			$serialization = substr( $serialization, 1 );
 			$inverse = true;
 		}
@@ -456,7 +466,7 @@ class DIProperty extends SMWDataItem {
 	 */
 	public static function newFromUserLabel( $label, $inverse = false, $languageCode = false ) {
 
-		if ( $label !== '' && $label{0} == '-' ) {
+		if ( $label !== '' && $label[0] == '-' ) {
 			$label = substr( $label, 1 );
 			$inverse = true;
 		}
@@ -495,7 +505,7 @@ class DIProperty extends SMWDataItem {
 
 		// If an inverse marker is present just omit the marker so a normal
 		// property page link can be produced independent of its directionality
-		if ( $dbkey !== '' && $dbkey{0} == '-'  ) {
+		if ( $dbkey !== '' && $dbkey[0] == '-'  ) {
 			$dbkey = substr( $dbkey, 1 );
 		}
 

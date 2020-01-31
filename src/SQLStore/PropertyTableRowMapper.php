@@ -111,7 +111,7 @@ class PropertyTableRowMapper {
 	 * @return string
 	 */
 	public function makeHash( array $array ) {
-		return md5( implode( '#', $array ) );;
+		return md5( implode( '#', $array ) );
 	}
 
 	/**
@@ -149,6 +149,10 @@ class PropertyTableRowMapper {
 		$fixedPropertyList = [];
 		$textItems = [];
 
+		$this->store->getObjectIds()->warmUpCache(
+			$semanticData->getProperties()
+		);
+
 		foreach ( $semanticData->getProperties() as $property ) {
 
 			$tableId = $this->store->findPropertyTableID( $property );
@@ -158,9 +162,9 @@ class PropertyTableRowMapper {
 				continue;
 			}
 
-			// "Notice: Undefined index"
+			// "Notice: Undefined index ..." or when a type isn't registered
 			if ( !isset( $propertyTables[$tableId] ) ) {
-				throw new RuntimeException( "Unable to find a property table for " . $property->getKey() );
+				continue;
 			}
 
 			$propertyTable = $propertyTables[$tableId];

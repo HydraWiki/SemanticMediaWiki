@@ -5,6 +5,13 @@ namespace SMW;
 use Title;
 use User;
 use WikiPage;
+use SMW\DeferredTransactionalCallableUpdate as DeferredUpdate;
+use Psr\Log\LoggerAwareTrait;
+use SMW\Property\ChangePropagationNotifier;
+use Revision;
+use SMW\MediaWiki\RevisionGuardAwareTrait;
+use SMW\MediaWiki\RevisionGuard;
+use Onoi\EventDispatcher\EventDispatcherAwareTrait;
 
 /**
  * This function takes care of storing the collected semantic data and
@@ -25,6 +32,10 @@ use WikiPage;
  */
 class DataUpdater {
 
+	use RevisionGuardAwareTrait;
+	use LoggerAwareTrait;
+	use EventDispatcherAwareTrait;
+
 	/**
 	 * @var Store
 	 */
@@ -36,9 +47,9 @@ class DataUpdater {
 	private $semanticData;
 
 	/**
-	 * @var TransactionalCallableUpdate
+	 * @var ChangePropagationNotifier
 	 */
-	private $transactionalCallableUpdate;
+	private $changePropagationNotifier;
 
 	/**
 	 * @var boolean|null
@@ -75,11 +86,12 @@ class DataUpdater {
 	 *
 	 * @param Store $store
 	 * @param SemanticData $semanticData
+	 * @param ChangePropagationNotifier $changePropagationNotifier
 	 */
-	public function __construct( Store $store, SemanticData $semanticData ) {
+	public function __construct( Store $store, SemanticData $semanticData, ChangePropagationNotifier $changePropagationNotifier ) {
 		$this->store = $store;
 		$this->semanticData = $semanticData;
-		$this->transactionalCallableUpdate = ApplicationFactory::getInstance()->newDeferredTransactionalCallableUpdate();
+		$this->changePropagationNotifier = $changePropagationNotifier;
 	}
 
 	/**
@@ -140,45 +152,90 @@ class DataUpdater {
 	}
 
 	/**
+	 * Is the update skippable given that a revision has already been stored in
+	 * SMW?
+	 *
+	 * MW 1.29 made the LinksUpdate a EnqueueableDataUpdate which creates updates
+	 * as JobSpecification (refreshLinksPrioritized) and posses a possibility of
+	 * running an update more than once for the same RevID.
+	 *
+	 * @since 3.1
+	 *
+	 * @return boolean
+	 */
+	public function isSkippable( Title $title ) {
+
+		$latestRevID = null;
+
+		if ( $this->revisionGuard->isSkippableUpdate( $title, $latestRevID ) ) {
+			return true;
+		}
+
+		$associatedRev = $this->store->getObjectIds()->findAssociatedRev(
+			$title->getDBKey(),
+			$title->getNamespace(),
+			$title->getInterwiki()
+		);
+
+		return $associatedRev == $latestRevID;
+	}
+
+	/**
 	 * @since 1.9
 	 *
 	 * @return boolean
 	 */
 	public function doUpdate() {
 
-		if ( !$this->canPerformUpdate() ) {
+		if ( !$this->canUpdate() ) {
 			return false;
 		}
 
-		DeferredCallableUpdate::releasePendingUpdates();
+		DeferredUpdate::releasePendingUpdates();
 
 		if ( $this->isDeferrableUpdate === false || $this->isCommandLineMode ) {
-			return $this->performUpdate();
+			return $this->runUpdate();
 		}
 
-		$this->transactionalCallableUpdate->setCallback( function() {
-			$this->performUpdate();
-		} );
+		$hash = $this->getSubject()->getHash();
 
-		$this->transactionalCallableUpdate->setOrigin(
+		$deferredUpdate = DeferredUpdate::newUpdate(
+			[
+				$this,
+				'runUpdate'
+			],
+			$this->store->getConnection( 'mw.db' )
+		);
+
+		$deferredUpdate->catchExceptionAndRethrow( true );
+
+		$deferredUpdate->setOrigin(
 			[
 				__METHOD__,
 				$this->origin,
-				$this->getSubject()->getHash()
+				$hash
 			]
 		);
 
-		$this->transactionalCallableUpdate->isDeferrableUpdate(
+		$deferredUpdate->setFingerprint(
+			$hash
+		);
+
+		$deferredUpdate->setLogger(
+			$this->logger
+		);
+
+		$deferredUpdate->isDeferrableUpdate(
 			$this->isDeferrableUpdate
 		);
 
-		$this->transactionalCallableUpdate->commitWithTransactionTicket();
-		$this->transactionalCallableUpdate->pushUpdate();
+		$deferredUpdate->commitWithTransactionTicket();
+		$deferredUpdate->pushUpdate();
 
 		return true;
 	}
 
-	private function canPerformUpdate() {
+	private function canUpdate() {
 
 		$title = $this->getSubject()->getTitle();
 
@@ -195,7 +252,7 @@ class DataUpdater {
 	 * check if semantic data should be processed and displayed for a page in
 	 * the given namespace
 	 */
-	private function performUpdate() {
+	public function runUpdate() {
 
 		$applicationFactory = ApplicationFactory::getInstance();
 
@@ -203,11 +260,25 @@ class DataUpdater {
 			$this->canCreateUpdateJob( $applicationFactory->getSettings()->get( 'smwgEnableUpdateJobs' ) );
 		}
 
+		$user = null;
 		$title = $this->getSubject()->getTitle();
-		$wikiPage = $applicationFactory->newPageCreator()->createPage( $title );
 
-		$revision = $wikiPage->getRevision();
-		$user = $revision !== null ? User::newFromId( $revision->getUser() ) : null;
+		$wikiPage = $applicationFactory->newPageCreator()->createPage(
+			$title
+		);
+
+		// For example, when using `SemanticApprovedRevs` the guard here ensures
+		// that the revision reference is the same that lead to an update during
+		// a content parse, the revision for the parsed text and the `smw_rev`
+		// reference field should both point to the same revision
+		$revision = RevisionGuard::getRevision(
+			$title,
+			$wikiPage->getRevision()
+		);
+
+		if ( $revision instanceof Revision ) {
+			$user = User::newFromId( $revision->getUser() );
+		}
 
 		$this->addAnnotations( $title, $wikiPage, $revision, $user );
 
@@ -221,10 +292,12 @@ class DataUpdater {
 		$this->checkChangePropagation();
 		$this->updateData();
 
-		if ( $this->semanticData->getOption( Enum::PURGE_ASSOC_PARSERCACHE ) === true ) {
-			$jobQueue = $applicationFactory->getJobQueue();
-			$jobQueue->runFromQueue( [ 'SMW\ParserCachePurgeJob' => 2 ] );
-		}
+		$context = [
+			'context' => 'DataUpdater',
+			'subject' => $this->getSubject()
+		];
+
+		$this->eventDispatcher->dispatch( 'InvalidatePropertySpecificationLookupCache', $context );
 
 		return true;
 	}
@@ -279,6 +352,8 @@ class DataUpdater {
 				$propertyAnnotator,
 				$schema
 			);
+
+			$schemaFactory->pushChangePropagationDispatchJob( $schema );
 		}
 
 		$propertyAnnotator->addAnnotation();
@@ -319,30 +394,7 @@ class DataUpdater {
 			return;
 		}
 
-		$namespace = $this->semanticData->getSubject()->getNamespace();
-
-		if ( $namespace !== SMW_NS_PROPERTY && $namespace !== NS_CATEGORY ) {
-			return;
-		}
-
-		$applicationFactory = ApplicationFactory::getInstance();
-
-		$propertyChangePropagationNotifier = new PropertyChangePropagationNotifier(
-			$this->store,
-			$applicationFactory->newSerializerFactory()
-		);
-
-		$propertyChangePropagationNotifier->setPropertyList(
-			$applicationFactory->getSettings()->get( 'smwgChangePropagationWatchlist' )
-		);
-
-		$propertyChangePropagationNotifier->isCommandLineMode(
-			$this->isCommandLineMode
-		);
-
-		$propertyChangePropagationNotifier->checkAndNotify(
-			$this->semanticData
-		);
+		$this->changePropagationNotifier->checkAndNotify( $this->semanticData );
 	}
 
 	private function updateData() {
@@ -414,14 +466,6 @@ class DataUpdater {
 			$target,
 			$source->getArticleID(),
 			$target->getArticleID()
-		);
-
-		$dispatchContext = EventHandler::getInstance()->newDispatchContext();
-		$dispatchContext->set( 'title', $subject->getTitle() );
-
-		EventHandler::getInstance()->getEventDispatcher()->dispatch(
-			'factbox.cache.delete',
-			$dispatchContext
 		);
 
 		return $semanticData;

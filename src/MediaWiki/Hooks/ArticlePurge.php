@@ -2,11 +2,13 @@
 
 namespace SMW\MediaWiki\Hooks;
 
+use Onoi\EventDispatcher\EventDispatcherAwareTrait;
 use SMW\ApplicationFactory;
 use SMW\DIProperty;
 use SMW\DIWikiPage;
-use SMW\EventHandler;
 use WikiPage;
+use SMW\MediaWiki\HookListener;
+use SMW\OptionsAwareTrait;
 
 /**
  * A function hook being executed before running "&action=purge"
@@ -14,14 +16,19 @@ use WikiPage;
  * A temporary cache entry is created to mark and identify the
  * Article that has been purged.
  *
- * @see http://www.mediawiki.org/wiki/Manual:Hooks/ArticlePurge
+ * @see https://www.mediawiki.org/wiki/Manual:Hooks/ArticlePurge
  *
  * @license GNU GPL v2+
  * @since 1.9
  *
  * @author mwjames
  */
-class ArticlePurge {
+class ArticlePurge implements HookListener {
+
+	use OptionsAwareTrait;
+	use EventDispatcherAwareTrait;
+
+	const CACHE_NAMESPACE = 'smw:arc';
 
 	/**
 	 * @since 1.9
@@ -32,44 +39,47 @@ class ArticlePurge {
 
 		$applicationFactory = ApplicationFactory::getInstance();
 
-		$pageId = $wikiPage->getTitle()->getArticleID();
+		$title = $wikiPage->getTitle();
+		$articleID = $title->getArticleID();
+
 		$settings = $applicationFactory->getSettings();
-
 		$cache = $applicationFactory->getCache();
-		$cacheFactory = $applicationFactory->newCacheFactory();
 
-		if ( $pageId > 0 ) {
+		if ( $articleID > 0 ) {
 			$cache->save(
-				$cacheFactory->getPurgeCacheKey( $pageId ),
+				smwfCacheKey( self::CACHE_NAMESPACE, $articleID ),
 				$settings->get( 'smwgAutoRefreshOnPurge' )
 			);
 		}
 
-		$dispatchContext = EventHandler::getInstance()->newDispatchContext();
-		$dispatchContext->set( 'title', $wikiPage->getTitle() );
-		$dispatchContext->set( 'context', 'ArticlePurge' );
-
-		if ( $settings->isFlagSet( 'smwgFactboxFeatures', SMW_FACTBOX_PURGE_REFRESH ) ) {
-			EventHandler::getInstance()->getEventDispatcher()->dispatch(
-				'factbox.cache.delete',
-				$dispatchContext
-			);
-		}
-
 		if ( $settings->get( 'smwgQueryResultCacheRefreshOnPurge' ) ) {
-
-			$dispatchContext->set( 'ask', $applicationFactory->getStore()->getPropertyValues(
-				DIWikiPage::newFromTitle( $wikiPage->getTitle() ),
-				new DIProperty( '_ASK') )
-			);
-
-			EventHandler::getInstance()->getEventDispatcher()->dispatch(
-				'cached.prefetcher.reset',
-				$dispatchContext
-			);
+			$this->invalidateResultCache( $applicationFactory->getStore(), $title );
 		}
+
+		$context = [
+			'context' => 'ArticlePurge',
+			'title' => $title
+		];
+
+		$this->eventDispatcher->dispatch( 'InvalidateEntityCache', $context );
 
 		return true;
+	}
+
+	private function invalidateResultCache( $store, $title ) {
+
+		$dependency_list = $store->getPropertyValues(
+			DIWikiPage::newFromTitle( $title ),
+			new DIProperty( '_ASK' )
+		);
+
+		$context = [
+			'context' => 'ArticlePurge',
+			'title' => $title,
+			'dependency_list' => $dependency_list
+		];
+
+		$this->eventDispatcher->dispatch( 'InvalidateResultCache', $context );
 	}
 
 }

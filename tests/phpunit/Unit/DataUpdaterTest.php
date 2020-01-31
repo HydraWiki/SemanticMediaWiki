@@ -24,6 +24,9 @@ class DataUpdaterTest  extends \PHPUnit_Framework_TestCase {
 	private $semanticDataFactory;
 	private $spyLogger;
 	private $store;
+	private $changePropagationNotifier;
+	private $eventDispatcher;
+	private $revisionGuard;
 
 	protected function setUp() {
 		parent::setUp();
@@ -31,33 +34,58 @@ class DataUpdaterTest  extends \PHPUnit_Framework_TestCase {
 		$this->testEnvironment = new TestEnvironment( [
 			'smwgPageSpecialProperties'       => [],
 			'smwgEnableUpdateJobs'            => false,
-			'smwgNamespacesWithSemanticLinks' => [ NS_MAIN => true ]
+			'smwgNamespacesWithSemanticLinks' => [ NS_MAIN => true, SMW_NS_SCHEMA => true ]
 		] );
 
 		$this->spyLogger = $this->testEnvironment->newSpyLogger();
+
+		$this->eventDispatcher = $this->getMockBuilder( '\Onoi\EventDispatcher\EventDispatcher' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$this->revisionGuard = $this->getMockBuilder( '\SMW\MediaWiki\RevisionGuard' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$this->propertySpecificationLookup = $this->getMockBuilder( '\SMW\Property\SpecificationLookup' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$this->changePropagationNotifier = $this->getMockBuilder( '\SMW\Property\ChangePropagationNotifier' )
+			->disableOriginalConstructor()
+			->getMock();
 
 		$idTable = $this->getMockBuilder( '\stdClass' )
 			->setMethods( [ 'exists' ] )
 			->getMock();
 
+		$connection = $this->getMockBuilder( '\SMW\MediaWiki\Database' )
+			->disableOriginalConstructor()
+			->getMock();
+
 		$this->store = $this->getMockBuilder( '\SMW\SQLStore\SQLStore' )
 			->disableOriginalConstructor()
-			->setMethods( [ 'getObjectIds' ] )
+			->setMethods( [ 'getObjectIds', 'getConnection' ] )
 			->getMock();
 
 		$this->store->expects( $this->any() )
 			->method( 'getObjectIds' )
 			->will( $this->returnValue( $idTable ) );
 
+		$this->store->expects( $this->any() )
+			->method( 'getConnection' )
+			->will( $this->returnValue( $connection ) );
+
 		$this->store->setLogger( $this->spyLogger );
 
-		$this->testEnvironment->registerObject( 'Store', $this->store );
-
-		$this->transactionalCallableUpdate = $this->getMockBuilder( '\SMW\MediaWiki\Deferred\TransactionalCallableUpdate' )
+		$jobQueue = $this->getMockBuilder( '\SMW\MediaWiki\JobQueue' )
 			->disableOriginalConstructor()
 			->getMock();
 
-		$this->testEnvironment->registerObject( 'DeferredTransactionalCallableUpdate', $this->transactionalCallableUpdate );
+		$this->testEnvironment->registerObject( 'JobQueue', $jobQueue );
+		$this->testEnvironment->registerObject( 'Store', $this->store );
+		$this->testEnvironment->registerObject( 'RevisionGuard', $this->revisionGuard );
+		$this->testEnvironment->registerObject( 'PropertySpecificationLookup', $this->propertySpecificationLookup );
 
 		$this->semanticDataFactory = $this->testEnvironment->getUtilityFactory()->newSemanticDataFactory();
 	}
@@ -75,17 +103,30 @@ class DataUpdaterTest  extends \PHPUnit_Framework_TestCase {
 
 		$this->assertInstanceOf(
 			DataUpdater::class,
-			new DataUpdater( $this->store, $semanticData )
+			new DataUpdater( $this->store, $semanticData, $this->changePropagationNotifier )
 		);
 	}
 
 	public function testDoUpdateForDefaultSettings() {
 
+		$this->eventDispatcher->expects( $this->once() )
+			->method( 'dispatch' )
+			->with( $this->equalTo( \SMW\Listener\EventListener\EventListeners\InvalidatePropertySpecificationLookupCacheEventListener::EVENT_ID ) );
+
 		$semanticData = $this->semanticDataFactory->newEmptySemanticData( __METHOD__ );
 
 		$instance = new DataUpdater(
 			$this->store,
-			$semanticData
+			$semanticData,
+			$this->changePropagationNotifier
+		);
+
+		$instance->setEventDispatcher(
+			$this->eventDispatcher
+		);
+
+		$instance->setRevisionGuard(
+			$this->revisionGuard
 		);
 
 		$this->assertTrue(
@@ -95,18 +136,30 @@ class DataUpdaterTest  extends \PHPUnit_Framework_TestCase {
 
 	public function testDeferredUpdate() {
 
-		$this->transactionalCallableUpdate->expects( $this->once() )
-			->method( 'pushUpdate' );
-
 		$semanticData = $this->semanticDataFactory->newEmptySemanticData( __METHOD__ );
 
 		$instance = new DataUpdater(
 			$this->store,
-			$semanticData
+			$semanticData,
+			$this->changePropagationNotifier
 		);
 
+		$instance->setEventDispatcher(
+			$this->eventDispatcher
+		);
+
+		$instance->setRevisionGuard(
+			$this->revisionGuard
+		);
+
+		$instance->setLogger( $this->spyLogger );
 		$instance->isDeferrableUpdate( true );
 		$instance->doUpdate();
+
+		$this->assertContains(
+			'DeferrableUpdate',
+			$this->spyLogger->getMessagesAsString()
+		);
 	}
 
 	/**
@@ -156,7 +209,12 @@ class DataUpdaterTest  extends \PHPUnit_Framework_TestCase {
 
 		$instance = new DataUpdater(
 			$store,
-			$semanticData
+			$semanticData,
+			$this->changePropagationNotifier
+		);
+
+		$instance->setEventDispatcher(
+			$this->eventDispatcher
 		);
 
 		$instance->canCreateUpdateJob(
@@ -212,11 +270,16 @@ class DataUpdaterTest  extends \PHPUnit_Framework_TestCase {
 
 		$instance = new DataUpdater(
 			$store,
-			$semanticData
+			$semanticData,
+			$this->changePropagationNotifier
 		);
 
 		$instance->canCreateUpdateJob(
 			$updateJobStatus
+		);
+
+		$instance->setEventDispatcher(
+			$this->eventDispatcher
 		);
 
 		$this->assertTrue(
@@ -236,7 +299,12 @@ class DataUpdaterTest  extends \PHPUnit_Framework_TestCase {
 
 		$instance = new DataUpdater(
 			$this->store,
-			$semanticData
+			$semanticData,
+			$this->changePropagationNotifier
+		);
+
+		$instance->setEventDispatcher(
+			$this->eventDispatcher
 		);
 
 		$this->assertInternalType(
@@ -257,10 +325,90 @@ class DataUpdaterTest  extends \PHPUnit_Framework_TestCase {
 
 		$instance = new DataUpdater(
 			$this->store,
-			$semanticData
+			$semanticData,
+			$this->changePropagationNotifier
+		);
+
+		$instance->setEventDispatcher(
+			$this->eventDispatcher
 		);
 
 		$this->assertFalse(
+			$instance->doUpdate()
+		);
+	}
+
+	public function testDoUpdateForSchema() {
+
+		$wikiPage = new DIWikiPage(
+			'Foo',
+			SMW_NS_SCHEMA,
+			''
+		);
+
+		$semanticData = $this->semanticDataFactory->setSubject( $wikiPage )->newEmptySemanticData();
+
+		$idTable = $this->getMockBuilder( '\stdClass' )
+			->setMethods( [ 'exists' ] )
+			->getMock();
+
+		$store = $this->getMockBuilder( '\SMW\SQLStore\SQLStore' )
+			->disableOriginalConstructor()
+			->setMethods( [ 'updateData' ] )
+			->getMock();
+
+		$store->expects( $this->once() )
+			->method( 'updateData' );
+
+		$wikiPage = $this->getMockBuilder( '\WikiPage' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$revision = $this->getMockBuilder( '\Revision' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$content = $this->getMockBuilder( '\Content' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$wikiPage = $this->getMockBuilder( '\WikiPage' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$wikiPage->expects( $this->atLeastOnce() )
+			->method( 'getContent' )
+			->will( $this->returnValue( $content ) );
+
+		$wikiPage->expects( $this->atLeastOnce() )
+			->method( 'getRevision' )
+			->will( $this->returnValue( $revision ) );
+
+		$pageCreator = $this->getMockBuilder( '\SMW\MediaWiki\PageCreator' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$pageCreator->expects( $this->atLeastOnce() )
+			->method( 'createPage' )
+			->will( $this->returnValue( $wikiPage ) );
+
+		$this->testEnvironment->registerObject( 'PageCreator', $pageCreator );
+
+		$instance = new DataUpdater(
+			$store,
+			$semanticData,
+			$this->changePropagationNotifier
+		);
+
+		$instance->setEventDispatcher(
+			$this->eventDispatcher
+		);
+
+		$instance->canCreateUpdateJob(
+			true
+		);
+
+		$this->assertTrue(
 			$instance->doUpdate()
 		);
 	}
@@ -295,7 +443,12 @@ class DataUpdaterTest  extends \PHPUnit_Framework_TestCase {
 			->method( 'createPage' )
 			->will( $this->returnValue( $wikiPage ) );
 
+		$propertySpecificationLookup = $this->getMockBuilder( '\SMW\Property\SpecificationLookup' )
+			->disableOriginalConstructor()
+			->getMock();
+
 		$this->testEnvironment->registerObject( 'PageCreator', $pageCreator );
+		$this->testEnvironment->registerObject( 'PropertySpecificationLookup', $propertySpecificationLookup );
 
 		$source = $this->getMockBuilder( '\SMW\DIWikiPage' )
 			->disableOriginalConstructor()
@@ -332,7 +485,16 @@ class DataUpdaterTest  extends \PHPUnit_Framework_TestCase {
 
 		$instance = new DataUpdater(
 			$store,
-			$semanticData
+			$semanticData,
+			$this->changePropagationNotifier
+		);
+
+		$instance->setEventDispatcher(
+			$this->eventDispatcher
+		);
+
+		$instance->setRevisionGuard(
+			$this->revisionGuard
 		);
 
 		$instance->canCreateUpdateJob( true );

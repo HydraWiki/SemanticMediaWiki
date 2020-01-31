@@ -18,9 +18,63 @@ use SMWDataItem;
  */
 class DataValueFactoryTest extends \PHPUnit_Framework_TestCase {
 
+	use PHPUnitCompat;
+
 	protected function tearDown() {
 		DataValueFactory::getInstance()->clear();
 		parent::tearDown();
+	}
+
+	public function testAddGetCallable() {
+
+		$dataValueFactory = DataValueFactory::getInstance();
+
+		$test = $this->getMockBuilder( '\stdClass' )
+			->disableOriginalConstructor()
+			->setMethods( [ 'doRun' ] )
+			->getMock();
+
+		$test->expects( $this->once() )
+			->method( 'doRun' );
+
+		$callback = function() use( $test ) {
+			return $test;
+		};
+
+		$dataValueFactory->addCallable( 'foo.test', $callback );
+
+		$dataValue = $dataValueFactory->newTypeIdValue(
+			'_txt',
+			'foo'
+		);
+
+		$callback = $dataValue->getCallable( 'foo.test' );
+		$callback()->doRun();
+	}
+
+	public function testAddCallableOnAlreadyRegisteredKeyThrowsException() {
+
+		$dataValueFactory = DataValueFactory::getInstance();
+
+		$dataValueFactory->addCallable( 'foo.test', [ $this, 'testAddCallableOnAlreadyRegisteredKeyThrowsException' ] );
+
+		$this->setExpectedException( '\RuntimeException' );
+		$dataValueFactory->addCallable( 'foo.test', [ $this, 'testAddCallableOnAlreadyRegisteredKeyThrowsException' ] );
+
+		$dataValueFactory->clearCallable( 'foo.test' );
+	}
+
+	public function testGetCallableOnUnknownKeyThrowsException() {
+
+		$dataValueFactory = DataValueFactory::getInstance();
+
+		$dataValue = $dataValueFactory->newTypeIdValue(
+			'_txt',
+			'foo'
+		);
+
+		$this->setExpectedException( '\RuntimeException' );
+		$dataValue->getCallable( 'foo.test' );
 	}
 
 	/**
@@ -172,6 +226,25 @@ class DataValueFactoryTest extends \PHPUnit_Framework_TestCase {
 
 		$dataValue = DataValueFactory::getInstance()->newPropertyValueByLabel(
 			'Foo',
+			'Bar',
+			new DIWikiPage( 'Foobar', SMW_NS_PROPERTY )
+		);
+
+		$this->assertInstanceOf(
+			'\SMWPropertyValue',
+			$dataValue
+		);
+
+		$this->assertSame(
+			'Bar',
+			$dataValue->getCaption()
+		);
+	}
+
+	public function testNewPropertyValueByItem() {
+
+		$dataValue = DataValueFactory::getInstance()->newPropertyValueByItem(
+			DIProperty::newFromUserLabel( __METHOD__ ),
 			'Bar',
 			new DIWikiPage( 'Foobar', SMW_NS_PROPERTY )
 		);

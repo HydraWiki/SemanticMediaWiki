@@ -4,6 +4,8 @@ namespace SMW\MediaWiki\Hooks;
 
 use SkinTemplate;
 use SMW\MediaWiki\JobQueue;
+use SMW\MediaWiki\HookListener;
+use SMW\OptionsAwareTrait;
 
 /**
  * @see https://www.mediawiki.org/wiki/Manual:Hooks/PersonalUrls
@@ -13,7 +15,9 @@ use SMW\MediaWiki\JobQueue;
  *
  * @author mwjames
  */
-class PersonalUrls extends HookHandler {
+class PersonalUrls implements HookListener {
+
+	use OptionsAwareTrait;
 
 	/**
 	 * @var SkinTemplate
@@ -48,13 +52,13 @@ class PersonalUrls extends HookHandler {
 		$watchlist = $this->getOption( 'smwgJobQueueWatchlist', [] );
 
 		if ( $this->getOption( 'prefs-jobqueue-watchlist' ) !== null && $watchlist !== [] ) {
-			$this->addJobQueueWatchlist( $watchlist, $personalUrls );
+			$personalUrls = $this->getJobQueueWatchlist( $watchlist, $personalUrls );
 		}
 
 		return true;
 	}
 
-	private function addJobQueueWatchlist( $watchlist, &$personalUrls ) {
+	private function getJobQueueWatchlist( $watchlist, $personalUrls ) {
 
 		$queue = [];
 
@@ -62,8 +66,14 @@ class PersonalUrls extends HookHandler {
 			$size = $this->jobQueue->getQueueSize( $job );
 
 			if ( $size > 0 ) {
-				$queue[$job] = $this->humanReadable( $size );
+				$queue[$job] = $size;
 			}
+		}
+
+		arsort( $queue );
+
+		foreach ( $queue as $job => $size ) {
+			$queue[$job] = $this->humanReadable( $size );
 		}
 
 		$out = $this->skin->getOutput();
@@ -73,7 +83,7 @@ class PersonalUrls extends HookHandler {
 		$out->addJsConfigVars( 'smwgJobQueueWatchlist', $queue );
 
 		$personalUrl['smw-jobqueue-watchlist'] = [
-			'text'   => 'ⅉ [ ' . ( $queue === [] ? '0' : implode( ' | ', $queue ) ) . ' ]' ,
+			'text'   => 'ⅉ [ ' . ( $queue === [] ? '0' : implode( ' | ', $queue ) ) . ' ]',
 			'href'   => '#',
 			'class'  => 'smw-personal-jobqueue-watchlist is-disabled',
 			'active' => true
@@ -82,7 +92,7 @@ class PersonalUrls extends HookHandler {
 		$keys = array_keys( $personalUrls );
 
 		// Insert the link before the watchlist
-		$personalUrls = $this->splice(
+		return $this->splice(
 			$personalUrls,
 			$personalUrl,
 			array_search( 'watchlist', $keys )

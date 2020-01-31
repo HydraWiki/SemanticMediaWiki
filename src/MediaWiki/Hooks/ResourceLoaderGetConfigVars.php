@@ -2,8 +2,10 @@
 
 namespace SMW\MediaWiki\Hooks;
 
-use MWNamespace;
 use SMW\Localizer;
+use SMW\MediaWiki\NamespaceInfo;
+use SMW\MediaWiki\HookListener;
+use SMW\OptionsAwareTrait;
 
 /**
  * Hook: ResourceLoaderGetConfigVars called right before
@@ -18,7 +20,30 @@ use SMW\Localizer;
  *
  * @author mwjames
  */
-class ResourceLoaderGetConfigVars extends HookHandler {
+class ResourceLoaderGetConfigVars implements HookListener {
+
+	use OptionsAwareTrait;
+
+	const OPTION_KEYS = [
+		'smwgQMaxLimit',
+		'smwgQMaxInlineLimit',
+		'smwgNamespacesWithSemanticLinks',
+		'smwgResultFormats'
+	];
+
+	/**
+	 * @var NamespaceInfo
+	 */
+	private $namespaceInfo;
+
+	/**
+	 * @since 3.1
+	 *
+	 * @param NamespaceInfo $namespaceInfo
+	 */
+	public function __construct( NamespaceInfo $namespaceInfo ) {
+		$this->namespaceInfo = $namespaceInfo;
+	}
 
 	/**
 	 * @since 1.9
@@ -33,22 +58,22 @@ class ResourceLoaderGetConfigVars extends HookHandler {
 			'version' => SMW_VERSION,
 			'namespaces' => [],
 			'settings' => [
-				'smwgQMaxLimit' => $GLOBALS['smwgQMaxLimit'],
-				'smwgQMaxInlineLimit' => $GLOBALS['smwgQMaxInlineLimit'],
+				'smwgQMaxLimit' => $this->getOption( 'smwgQMaxLimit' ),
+				'smwgQMaxInlineLimit' => $this->getOption( 'smwgQMaxInlineLimit' ),
 			]
 		];
 
 		$localizer = Localizer::getInstance();
 
 		// Available semantic namespaces
-		foreach ( array_keys( $GLOBALS['smwgNamespacesWithSemanticLinks'] ) as $ns ) {
-			$name = MWNamespace::getCanonicalName( $ns );
+		foreach ( array_keys( $this->getOption( 'smwgNamespacesWithSemanticLinks' ) ) as $ns ) {
+			$name = $this->namespaceInfo->getCanonicalName( $ns );
 			$vars['smw-config']['settings']['namespace'][$name] = $ns;
 			$vars['smw-config']['namespaces']['canonicalName'][$ns] = $name;
 			$vars['smw-config']['namespaces']['localizedName'][$ns] = $localizer->getNamespaceTextById( $ns );
 		}
 
-		foreach ( array_keys( $GLOBALS['smwgResultFormats'] ) as $format ) {
+		foreach ( array_keys( $this->getOption( 'smwgResultFormats' ) ) as $format ) {
 			$vars['smw-config']['formats'][$format] = htmlspecialchars( $format );
 		}
 

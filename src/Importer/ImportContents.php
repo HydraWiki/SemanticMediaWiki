@@ -10,8 +10,8 @@ namespace SMW\Importer;
  */
 class ImportContents {
 
-	const CONTENT_TEXT = 'content.text';
-	const CONTENT_XML = 'content.xml';
+	const CONTENT_TEXT = 'text/plain';
+	const CONTENT_XML = 'text/xml';
 
 	/**
 	 * @var string
@@ -155,6 +155,22 @@ class ImportContents {
 	 */
 	public function setContentsFile( $contentsFile ) {
 		$this->contentsFile = $contentsFile;
+	}
+
+	/**
+	 * @since 3.2
+	 *
+	 * @return string
+	 */
+	public function getFingerprint() : string {
+
+		$fingerprint = md5( $this->contents );
+
+		if ( $this->contentsFile !== '' ) {
+			$fingerprint .= hash_file( 'md5', $this->contentsFile );
+		}
+
+		return md5( $this->version . $fingerprint );
 	}
 
 	/**

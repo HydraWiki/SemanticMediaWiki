@@ -7,6 +7,7 @@ use SMW\Message;
 use Title;
 use SMWQueryResult as QueryResult;
 use SMW\Utils\HtmlTabs;
+use SMW\Utils\UrlArgs;
 use SMW\Query\QueryLinker;
 use SMWQuery as Query;
 
@@ -134,17 +135,17 @@ class HtmlForm {
 	 * @since 3.0
 	 *
 	 * @param UrlArgs $urlArgs
-	 * @param QueryResult $queryResult
+	 * @param QueryResult|string|null $queryResult
 	 *
 	 * @return string
 	 */
-	public function getForm( UrlArgs $urlArgs, QueryResult $queryResult = null, $text = '' ) {
+	public function getForm( UrlArgs $urlArgs, $queryResult = null, array $queryLog = [] ) {
 
-		$html = $this->buildHTML( $urlArgs, $queryResult, $text );
+		$html = $this->buildHTML( $urlArgs, $queryResult, $queryLog );
 
 		if ( $this->isPostSubmit ) {
 			$params = [
-				'action' => $this->title->getLocalUrl( wfArrayToCGI( $urlArgs ) . '#search' ),
+				'action' => $this->title->getLocalUrl( '#search' ),
 				'name' => 'ask',
 				'method' => 'post'
 			];
@@ -159,11 +160,17 @@ class HtmlForm {
 		return Html::rawElement( 'form', $params, $html );
 	}
 
-	private function buildHTML( $urlArgs, $queryResult, $infoText ) {
+	private function buildHTML( $urlArgs, $queryResult, $queryLog ) {
 
 		$navigation = '';
 		$queryLink = null;
 		$isFromCache = false;
+		$infoText = '';
+
+		if ( $queryLog !== [] ) {
+			$infoText = '<h3>' . wfMessage( 'smw-ask-extra-query-log' )->text() . '</h3>';
+			$infoText .= '<pre>' . json_encode( $queryLog, JSON_PRETTY_PRINT ) . '</pre>';
+		}
 
 		if ( $queryResult instanceof QueryResult ) {
 			$navigation = NavigationLinksWidget::navigationLinks(
@@ -254,17 +261,6 @@ class HtmlForm {
 			LinksWidget::embeddedCodeBlock(	$code, true ) . '</div>'
 		);
 
-		$clipboardLink = LinksWidget::clipboardLink( $queryLink );
-
-		$htmlTabs->tab(
-			'smw-askt-clipboard',
-			$clipboardLink,
-			[
-				'hide' => $clipboardLink === '',
-				'class' => 'clipboard-bookmark smw-tab-right'
-			]
-		);
-
 		if ( !isset( $this->parameters['source'] ) || $this->parameters['source'] === '' ) {
 			$debugLink = LinksWidget::debugLink( $this->title, $urlArgs, $isEmpty, true );
 
@@ -299,7 +295,6 @@ class HtmlForm {
 			);
 
 			if ( is_array( $links ) ) {
-				$links[] = $infoText;
 
 				// External source cannot disable the cache
 				if ( isset( $this->parameters['source'] ) && $this->parameters['source'] !== '' ) {
@@ -310,9 +305,12 @@ class HtmlForm {
 					$links[] = $noCacheLink;
 				}
 
-				$infoText = '<ul><li>' . implode( '</li><li>', $links ) . '</li></ul>';
+				if ( $links !== [] ) {
+					$infoText .= '<h3>' . wfMessage( 'smw-ask-extra-other' )->text() . '</h3>';
+					$infoText .= '<ul><li>' . implode( '</li><li>', $links ) . '</li></ul>';
+				}
 			} else {
-				$infoText = $links;
+				$infoText .= $links;
 			}
 
 			$htmlTabs->content(

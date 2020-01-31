@@ -145,6 +145,10 @@ class SomeValueInterpreter {
 			$value = $dataItem->getSortKey();
 		}
 
+		if ( mb_strlen( $value ) > $this->conditionBuilder->getOption( 'maximum.value.length' ) ) {
+			$value = mb_substr( $value, 0, $this->conditionBuilder->getOption( 'maximum.value.length' ) );
+		}
+
 		if ( $this->isRange( $comparator ) ) {
 			$match = $this->fieldMapper->range( "$pid.$field", $value, $comparator );
 		} elseif ( $isSubDataType && $dataItem->getDBKey() === '' && $comparator === SMW_CMP_NEQ ) {
@@ -158,7 +162,7 @@ class SomeValueInterpreter {
 			// the standard analyzer splits CJK terms into single characters
 			if ( $this->conditionBuilder->getOption( 'cjk.best.effort.proximity.match', false ) && CharExaminer::isCJK( $value ) ) {
 
-				if ( $value{0} === '*' ) {
+				if ( $value[0] === '*' ) {
 					$value = substr( $value, 1 );
 				}
 
@@ -183,12 +187,12 @@ class SomeValueInterpreter {
 			// https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-query-string-query.html#_boolean_operators
 			if ( $this->conditionBuilder->getOption( 'query_string.boolean.operators' ) && ( strpos( $value, '+' ) !== false || strpos( $value, '-' ) !== false ) ) {
 				$match = $this->fieldMapper->query_string( "$pid.$field", $value );
-			} elseif ( ( $hasWildcard && $value{0} === '*' ) && $this->conditionBuilder->getOption( 'cjk.best.effort.proximity.match', false ) && CharExaminer::isCJK( $value ) ) {
+			} elseif ( ( $hasWildcard && $value[0] === '*' ) && $this->conditionBuilder->getOption( 'cjk.best.effort.proximity.match', false ) && CharExaminer::isCJK( $value ) ) {
 
 				// Avoid *...* on CJK related terms so that something like
 				// [[Has page::in:名古屋]] returns a better match accuracy given that
 				// the standard analyzer splits CJK terms into single characters
-				if ( $value{0} === '*' ) {
+				if ( $value[0] === '*' ) {
 					$value = mb_substr( $value, 1 );
 				}
 
@@ -200,7 +204,7 @@ class SomeValueInterpreter {
 				// matching single chars
 				$match = $this->fieldMapper->match( "$pid.$field", "\"$value\"" );
 
-			} elseif ( ( $hasWildcard && $value{0} === '*' ) || ( strpos( $value, '~?' ) !== false && $value{0} === '?' ) ) {
+			} elseif ( ( $hasWildcard && $value[0] === '*' ) || ( strpos( $value, '~?' ) !== false && $value[0] === '?' ) ) {
 				// ES notes "... In order to prevent extremely slow wildcard queries,
 				// a wildcard term should not start with one of the wildcards
 				// * or ? ..." therefore use `query_string` instead of a
@@ -271,6 +275,10 @@ class SomeValueInterpreter {
 		$type = $options['type'];
 
 		$value = $dataItem->getSerialization();
+
+		if ( mb_strlen( $value ) > $this->conditionBuilder->getOption( 'maximum.value.length' ) ) {
+			$value = mb_substr( $value, 0, $this->conditionBuilder->getOption( 'maximum.value.length' ) );
+		}
 
 		if ( $this->isRange( $comparator ) ) {
 			// Use a not_analyzed field
@@ -440,6 +448,10 @@ class SomeValueInterpreter {
 	 * @return array
 	 */
 	public function plain( $value, array &$options ) {
+
+		if ( mb_strlen( $value ) > $this->conditionBuilder->getOption( 'maximum.value.length' ) ) {
+			$value = mb_substr( $value, 0, $this->conditionBuilder->getOption( 'maximum.value.length' ) );
+		}
 
 		$comparator = $options['comparator'];
 		$pid = $options['pid'];

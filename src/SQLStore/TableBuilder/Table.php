@@ -14,10 +14,19 @@ use RuntimeException;
  */
 class Table {
 
+	const TYPE_FIELDS = 'fields';
+	const TYPE_INDICES = 'indices';
+	const TYPE_DEFAULTS = 'defaults';
+
 	/**
 	 * @var string
 	 */
 	private $name;
+
+	/**
+	 * @var boolean
+	 */
+	private $isCoreTable = true;
 
 	/**
 	 * @var array
@@ -28,9 +37,11 @@ class Table {
 	 * @since 2.5
 	 *
 	 * @param string $name
+	 * @param boolean $isCoreTable
 	 */
-	public function __construct( $name ) {
+	public function __construct( $name, bool $isCoreTable = true ) {
 		$this->name = $name;
+		$this->isCoreTable = $isCoreTable;
 	}
 
 	/**
@@ -40,6 +51,15 @@ class Table {
 	 */
 	public function getName() {
 		return $this->name;
+	}
+
+	/**
+	 * @since 3.2
+	 *
+	 * @return boolean
+	 */
+	public function isCoreTable() : bool {
+		return $this->isCoreTable;
 	}
 
 	/**
@@ -83,7 +103,16 @@ class Table {
 	 * @param string|array $fieldType
 	 */
 	public function addColumn( $fieldName, $fieldType ) {
-		$this->attributes['fields'][$fieldName] = $fieldType;
+		$this->attributes[self::TYPE_FIELDS][$fieldName] = $fieldType;
+	}
+
+	/**
+	 * @since 3.1
+	 *
+	 * @param string $key
+	 */
+	public function setPrimaryKey( $key ) {
+		$this->addIndex( [ $key, "PRIMARY KEY" ], 'pri' );
 	}
 
 	/**
@@ -93,10 +122,17 @@ class Table {
 	 * @param string|null $key
 	 */
 	public function addIndex( $index, $key = null ) {
+
+		$val = is_array( $index ) ? $index[0] : $index;
+
+		if ( count( explode( ' ', $val ) ) > 1 ) {
+			throw new RuntimeException( "Index declaration `$val` contains a space!." );
+		}
+
 		if ( $key !== null ) {
-			$this->attributes['indices'][$key] = $index;
+			$this->attributes[self::TYPE_INDICES][$key] = $index;
 		} else {
-			$this->attributes['indices'][] = $index;
+			$this->attributes[self::TYPE_INDICES][] = $index;
 		}
 	}
 
@@ -107,7 +143,7 @@ class Table {
 	 * @param string|int $default
 	 */
 	public function addDefault( $fieldName, $default ) {
-		$this->attributes['defaults'][$fieldName] = $default;
+		$this->attributes[self::TYPE_DEFAULTS][$fieldName] = $default;
 	}
 
 	/**
@@ -120,7 +156,7 @@ class Table {
 	 */
 	public function addOption( $key, $option ) {
 
-		if ( $key === 'fields' || $key === 'indices' || $key === 'defaults' ) {
+		if ( in_array( $key, [ self::TYPE_FIELDS, self::TYPE_INDICES, self::TYPE_DEFAULTS ] ) ) {
 			throw new RuntimeException( "$key is a reserved option key." );
 		}
 

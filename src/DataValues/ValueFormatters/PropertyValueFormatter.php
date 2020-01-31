@@ -177,8 +177,9 @@ class PropertyValueFormatter extends DataValueFormatter {
 
 		$property = $this->dataValue->getDataItem();
 		$languageCode = $this->dataValue->getOption( PropertyValue::OPT_USER_LANGUAGE );
+		$asCanonicalLabel = $this->dataValue->getOption( PropertyValue::OPT_CANONICAL_LABEL, false );
 
-		if ( ( $preferredLabel = $property->getPreferredLabel( $languageCode ) ) !== '' ) {
+		if ( $asCanonicalLabel === false && ( $preferredLabel = $property->getPreferredLabel( $languageCode ) ) !== '' ) {
 			return $preferredLabel;
 		}
 
@@ -226,6 +227,9 @@ class PropertyValueFormatter extends DataValueFormatter {
 			$wikiPageValue->setCaption( $preferredLabel );
 		} elseif ( ( $translatedPropertyLabel = $this->findTranslatedPropertyLabel( $property ) ) !== '' ) {
 			$wikiPageValue->setCaption( $translatedPropertyLabel );
+		} elseif ( ( $preferredCaption = $wikiPageValue->getPreferredCaption() ) !== '' ) {
+			// Do care for the displaytitle!
+			$wikiPageValue->setCaption( $preferredCaption );
 		} else {
 			$wikiPageValue->setCaption( $property->getLabel() );
 		}

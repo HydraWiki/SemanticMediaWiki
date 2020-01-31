@@ -10,6 +10,19 @@
  */
 
 /**@{
+  * Constants for the search type
+  */
+define( 'SMW_SPECIAL_SEARCHTYPE', 'SMWSearch' );
+/**@}*/
+
+/**@{
+  * Constants to indicate that the installer is called from the `ExtensionSchemaUpdates`
+  * hook.
+  */
+define( 'SMW_EXTENSION_SCHEMA_UPDATER', 'smw/extension/schema/updater' );
+/**@}*/
+
+/**@{
  * SMW\ResultPrinter related constants that define
  * how/if headers should be displayed
  */
@@ -41,6 +54,7 @@ define( 'SMW_FACTBOX_SHOWN', 5 );
 define( 'SMW_FACTBOX_CACHE', 16 );
 define( 'SMW_FACTBOX_PURGE_REFRESH', 32 );
 define( 'SMW_FACTBOX_DISPLAY_SUBOBJECT', 64 );
+define( 'SMW_FACTBOX_DISPLAY_ATTACHMENT', 128 );
 
 /**@}*/
 
@@ -143,15 +157,6 @@ define( 'SMW_SPARQL_QF_NOCASE', 32 ); // support case insensitive pattern matche
 /**@}*/
 
 /**@{
-  * Constants for ValueLookupStore
-  */
-define( 'SMW_VL_SD', 1 ); // enables ValueLookupStore::getSemanticData
-define( 'SMW_VL_PL', 2 ); // enables ValueLookupStore::getProperties
-define( 'SMW_VL_PV', 4 ); // enables ValueLookupStore::getPropertyValues
-define( 'SMW_VL_PS', 8 ); // enables ValueLookupStore::getPropertySubject
-/**@}*/
-
-/**@{
   * Deprecated since 3.0, remove options after complete removal in 3.1
   */
 define( 'SMW_HTTP_DEFERRED_ASYNC', true );
@@ -173,6 +178,7 @@ define( 'SMW_DV_PVUC', 128 );  // Declares a uniqueness constraint
 define( 'SMW_DV_TIMEV_CM', 256 );  // TimeValue to indicate calendar model
 define( 'SMW_DV_PPLB', 512 );  // Preferred property label
 define( 'SMW_DV_PROV_LHNT', 1024 );  // PropertyValue to output a hint in case of a preferred label usage
+define( 'SMW_DV_WPV_PIPETRICK', 2048 );  // Have WikiPageValue use a full pipe trick when rendering its caption.
 /**@}*/
 
 /**@{
@@ -193,6 +199,7 @@ define( 'SMW_ADM_DISPOSAL', 4 ); // IDDisposal
 define( 'SMW_ADM_SETUP', 8 ); // SetupStore
 define( 'SMW_ADM_PSTATS', 16 ); // Property statistics update
 define( 'SMW_ADM_FULLT', 32 ); // Fulltext update
+define( 'SMW_ADM_ALERT_LAST_OPTIMIZATION_RUN', 2048 ); // Table optimization alert
 /**@}*/
 
 /**@{
@@ -205,6 +212,8 @@ define( 'SMW_RF_TEMPLATE_OUTSEP', 2 ); // #2022 Enable 2.5 behaviour for templat
 /**@{
   * Constants for $smwgExperimentalFeatures
   */
+define( 'SMW_QUERYRESULT_PREFETCH', 2 );
+define( 'SMW_SHOWPARSER_USE_CURTAILMENT', 4 );
 /**@}*/
 
 /**@{
@@ -282,8 +291,11 @@ define( 'SMW_REMOTE_REQ_SHOW_NOTE', 4 ); // Shows a note
 /**@{
   * Constants for Schema groups
   */
-define( 'SMW_SCHEMA_GROUP_FORMAT', 'schema.group.format' );
-define( 'SMW_SCHEMA_GROUP_SEARCH_FORM', 'schema.group.search.form' );
+define( 'SMW_SCHEMA_GROUP_FORMAT', 'schema/group/format' );
+define( 'SMW_SCHEMA_GROUP_SEARCH_FORM', 'schema/group/searchform' );
+define( 'SMW_SCHEMA_GROUP_PROPERTY', 'schema/group/property' );
+define( 'SMW_SCHEMA_GROUP_CONSTRAINT', 'schema/group/constraint' );
+define( 'SMW_SCHEMA_GROUP_PROFILE', 'schema/group/profile' );
 
 /**@{
   * Constants for Special:Ask submit method
@@ -291,6 +303,14 @@ define( 'SMW_SCHEMA_GROUP_SEARCH_FORM', 'schema.group.search.form' );
 define( 'SMW_SASK_SUBMIT_GET', 'get' );
 define( 'SMW_SASK_SUBMIT_GET_REDIRECT', 'get.redirect' );
 define( 'SMW_SASK_SUBMIT_POST', 'post' );
+/**@}*/
+
+/**@{
+  * Constants for constraint error check
+  */
+define( 'SMW_CONSTRAINT_ERR_CHECK_NONE', false );
+define( 'SMW_CONSTRAINT_ERR_CHECK_MAIN', 'check/main' );
+define( 'SMW_CONSTRAINT_ERR_CHECK_ALL', 'check/all' );
 /**@}*/
 
 /**@{

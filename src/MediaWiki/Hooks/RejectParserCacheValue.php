@@ -2,8 +2,14 @@
 
 namespace SMW\MediaWiki\Hooks;
 
-use SMW\SQLStore\QueryDependency\DependencyLinksUpdateJournal;
+use SMW\DependencyValidator;
+use SMW\NamespaceExaminer;
+use SMW\DIWikiPage;
+use SMW\EntityCache;
 use Title;
+use Page;
+use SMW\MediaWiki\HookListener;
+use Psr\Log\LoggerAwareTrait;
 
 /**
  * @see https://www.mediawiki.org/wiki/Manual:Hooks/RejectParserCacheValue
@@ -13,20 +19,29 @@ use Title;
  *
  * @author mwjames
  */
-class RejectParserCacheValue extends HookHandler {
+class RejectParserCacheValue implements HookListener {
+
+	use LoggerAwareTrait;
 
 	/**
-	 * @var DependencyLinksUpdateJournal
+	 * @var NamespaceExaminer
 	 */
-	private $dependencyLinksUpdateJournal;
+	private $namespaceExaminer;
+
+	/**
+	 * @var DependencyValidator
+	 */
+	private $dependencyValidator;
 
 	/**
 	 * @since 3.0
 	 *
-	 * @param DependencyLinksUpdateJournal $dependencyLinksUpdateJournal
+	 * @param NamespaceExaminer $namespaceExaminer
+	 * @param DependencyValidator $dependencyValidator
 	 */
-	public function __construct( DependencyLinksUpdateJournal $dependencyLinksUpdateJournal ) {
-		$this->dependencyLinksUpdateJournal = $dependencyLinksUpdateJournal;
+	public function __construct( NamespaceExaminer $namespaceExaminer, DependencyValidator $dependencyValidator ) {
+		$this->namespaceExaminer = $namespaceExaminer;
+		$this->dependencyValidator = $dependencyValidator;
 	}
 
 	/**
@@ -36,14 +51,28 @@ class RejectParserCacheValue extends HookHandler {
 	 *
 	 * @return boolean
 	 */
-	public function process( Title $title ) {
+	public function process( Page $page ) {
 
-		if ( $this->dependencyLinksUpdateJournal->has( $title ) ) {
-			$this->dependencyLinksUpdateJournal->delete( $title );
-			return false;
+		$title = $page->getTitle();
+
+		if ( $this->namespaceExaminer->isSemanticEnabled( $title->getNamespace() ) === false ) {
+			return true;
 		}
 
-		return true;
+		$subject = DIWikiPage::newFromTitle( $title );
+
+		if ( $this->dependencyValidator->canKeepParserCache( $subject ) ) {
+			return true;
+		}
+
+		$this->logger->info(
+			[ 'RejectParserCacheValue', 'Rejected, found archaic query dependencies', '{etag}' ],
+			[ 'role' => 'user' ]
+		);
+
+		// Return false to reject an otherwise usable cached value from the
+		// parser cache
+		return false;
 	}
 
 }

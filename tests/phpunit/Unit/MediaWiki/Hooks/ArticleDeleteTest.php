@@ -20,6 +20,7 @@ class ArticleDeleteTest extends \PHPUnit_Framework_TestCase {
 
 	private $testEnvironment;
 	private $jobFactory;
+	private $eventDispatcher;
 
 	protected function setUp() {
 		parent::setUp();
@@ -41,6 +42,10 @@ class ArticleDeleteTest extends \PHPUnit_Framework_TestCase {
 
 		$this->testEnvironment->registerObject( 'JobFactory', $this->jobFactory );
 		$this->testEnvironment->registerObject( 'JobQueue', $jobQueue );
+
+		$this->eventDispatcher = $this->getMockBuilder( '\Onoi\EventDispatcher\EventDispatcher' )
+			->disableOriginalConstructor()
+			->getMock();
 	}
 
 	protected function tearDown() {
@@ -64,7 +69,7 @@ class ArticleDeleteTest extends \PHPUnit_Framework_TestCase {
 
 	public function testProcess() {
 
-		$idTable = $this->getMockBuilder( '\SMWSql3SmwIds' )
+		$idTable = $this->getMockBuilder( '\SMW\SQLStore\EntityStore\EntityIdManager' )
 			->disableOriginalConstructor()
 			->getMock();
 
@@ -72,17 +77,9 @@ class ArticleDeleteTest extends \PHPUnit_Framework_TestCase {
 			->disableOriginalConstructor()
 			->getMock();
 
-		$parserCachePurgeJob = $this->getMockBuilder( '\SMW\MediaWiki\Jobs\NullJob' )
-			->disableOriginalConstructor()
-			->getMock();
-
 		$this->jobFactory->expects( $this->atLeastOnce() )
 			->method( 'newUpdateDispatcherJob' )
 			->will( $this->returnValue( $updateDispatcherJob ) );
-
-		$this->jobFactory->expects( $this->atLeastOnce() )
-			->method( 'newParserCachePurgeJob' )
-			->will( $this->returnValue( $parserCachePurgeJob ) );
 
 		$subject = DIWikiPage::newFromText( __METHOD__ );
 
@@ -101,20 +98,22 @@ class ArticleDeleteTest extends \PHPUnit_Framework_TestCase {
 			->method( 'getObjectIds' )
 			->will( $this->returnValue( $idTable ) );
 
-		$wikiPage = $this->getMockBuilder( '\WikiPage' )
-			->disableOriginalConstructor()
-			->getMock();
-
-		$wikiPage->expects( $this->atLeastOnce() )
-			->method( 'getTitle' )
-			->will( $this->returnValue( $subject->getTitle() ) );
+		$this->eventDispatcher->expects( $this->atLeastOnce() )
+			->method( 'dispatch' )
+			->withConsecutive(
+				[ $this->equalTo( 'InvalidateResultCache' ) ],
+				[ $this->equalTo( 'InvalidateEntityCache' ) ] );
 
 		$instance = new ArticleDelete(
 			$store
 		);
 
+		$instance->setEventDispatcher(
+			$this->eventDispatcher
+		);
+
 		$this->assertTrue(
-			$instance->process( $wikiPage )
+			$instance->process( $subject->getTitle() )
 		);
 	}
 

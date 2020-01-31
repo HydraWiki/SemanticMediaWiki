@@ -7,6 +7,9 @@ use Page;
 use SMW\DIProperty;
 use SMW\DIWikiPage;
 use SMW\MediaWiki\Jobs\ChangePropagationDispatchJob;
+use SMW\MediaWiki\HookListener;
+use SMW\OptionsAwareTrait;
+use SMW\DependencyValidator;
 use SMW\Message;
 use SMW\Store;
 use Title;
@@ -14,12 +17,17 @@ use Title;
 /**
  * @see https://www.mediawiki.org/wiki/Manual:Hooks/ArticleViewHeader
  *
+ * Note: This hook is not called on non-article pages (including edit pages) and
+ * it is also not called prior to outputting the edit preview.
+ *
  * @license GNU GPL v2+
  * @since 3.0
  *
  * @author mwjames
  */
-class ArticleViewHeader extends HookHandler {
+class ArticleViewHeader implements HookListener {
+
+	use OptionsAwareTrait;
 
 	/**
 	 * @var Store
@@ -27,12 +35,19 @@ class ArticleViewHeader extends HookHandler {
 	private $store;
 
 	/**
+	 * @var DependencyValidator
+	 */
+	private $dependencyValidator;
+
+	/**
 	 * @since 3.0
 	 *
-	 * @param Page $page
+	 * @param Store $store
+	 * @param DependencyValidator $dependencyLinksValidator
 	 */
-	public function __construct( Store $store  ) {
+	public function __construct( Store $store, DependencyValidator $dependencyValidator  ) {
 		$this->store = $store;
+		$this->dependencyValidator = $dependencyValidator;
 	}
 
 	/**
@@ -53,6 +68,14 @@ class ArticleViewHeader extends HookHandler {
 		// Only act when `_SUBC` is maintained as watchable property
 		if ( isset( $changePropagationWatchlist['_SUBC'] ) && $title->getNamespace() === NS_CATEGORY ) {
 			$useParserCache = $this->updateCategoryTop( $title, $page->getContext()->getOutput() );
+		}
+
+		$subject = DIWikiPage::newFromTitle( $title );
+
+		if ( $this->dependencyValidator->hasArchaicDependencies( $subject ) ) {
+			$this->dependencyValidator->markTitle( $title );
+			// Disable the parser cache even before `RejectParserCacheValue` comes into play
+			$useParserCache = false;
 		}
 
 		return true;

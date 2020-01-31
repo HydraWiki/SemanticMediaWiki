@@ -30,6 +30,27 @@ class SchemaValidatorTest extends \PHPUnit_Framework_TestCase {
 		);
 	}
 
+	public function testValidate_InaccessibleFile() {
+
+		$jsonSchemaValidator = $this->getMockBuilder( '\SMW\Utils\JsonSchemaValidator' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$jsonSchemaValidator->expects( $this->never() )
+			->method( 'validate' )
+			->will( $this->returnValue( false ) );
+
+		$instance = new SchemaValidator( $jsonSchemaValidator );
+
+		$info = [
+			SchemaDefinition::SCHEMA_VALIDATION_FILE => '...'
+		];
+
+		$this->assertNotEmpty(
+			$instance->validate( new SchemaDefinition( 'foo', [], $info ) )
+		);
+	}
+
 	public function testValidate_IsValid() {
 
 		$jsonSchemaValidator = $this->getMockBuilder( '\SMW\Utils\JsonSchemaValidator' )
@@ -46,8 +67,12 @@ class SchemaValidatorTest extends \PHPUnit_Framework_TestCase {
 
 		$instance = new SchemaValidator( $jsonSchemaValidator );
 
+		$info = [
+			SchemaDefinition::SCHEMA_VALIDATION_FILE => SMW_PHPUNIT_DIR . '/Fixtures/Schema/empty_schema.json'
+		];
+
 		$this->assertEmpty(
-			$instance->validate( new SchemaDefinition( 'foo', [], '...' ) )
+			$instance->validate( new SchemaDefinition( 'foo', [], $info ) )
 		);
 	}
 
@@ -71,8 +96,12 @@ class SchemaValidatorTest extends \PHPUnit_Framework_TestCase {
 
 		$instance = new SchemaValidator( $jsonSchemaValidator );
 
+		$info = [
+			SchemaDefinition::SCHEMA_VALIDATION_FILE => SMW_PHPUNIT_DIR . '/Fixtures/Schema/empty_schema.json'
+		];
+
 		$this->assertNotEmpty(
-			$instance->validate( new SchemaDefinition( 'foo', [], '...' ) )
+			$instance->validate( new SchemaDefinition( 'foo', [], $info ) )
 		);
 	}
 

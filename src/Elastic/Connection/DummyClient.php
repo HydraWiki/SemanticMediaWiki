@@ -6,7 +6,7 @@ use Onoi\Cache\Cache;
 use Onoi\Cache\NullCache;
 use Psr\Log\NullLogger;
 use RuntimeException;
-use SMW\Options;
+use SMW\Elastic\Config;
 
 /**
  * @private
@@ -29,28 +29,28 @@ class DummyClient extends Client {
 	private $cache;
 
 	/**
-	 * @var Options
+	 * @var Config
 	 */
-	private $options;
+	private $config;
 
 	/**
 	 * @since 3.0
 	 *
 	 * @param ElasticClient $client
 	 * @param Cache|null $cache
-	 * @param Options|null $options
+	 * @param Config|null $config
 	 */
-	public function __construct( $client = null, Cache $cache = null, Options $options = null ) {
+	public function __construct( $client = null, Cache $cache = null, Config $config = null ) {
 		$this->client = $client;
 		$this->cache = $cache;
-		$this->options = $options;
+		$this->config = $config;
 
 		if ( $this->cache === null ) {
 			$this->cache = new NullCache();
 		}
 
-		if ( $this->options === null ) {
-			$this->options = new Options();
+		if ( $this->config === null ) {
+			$this->config = new Config();
 		}
 
 		$this->logger = new NullLogger();
@@ -60,7 +60,14 @@ class DummyClient extends Client {
 	 * @see Client::getConfig
 	 */
 	public function getConfig() {
-		return $this->options;
+		return $this->config;
+	}
+
+	/**
+	 * @see Client::getIndexNameByType
+	 */
+	public function getIndexNameByType( $type ) {
+		return $this->getIndexName( $type );
 	}
 
 	/**
@@ -238,6 +245,18 @@ class DummyClient extends Client {
 	public function explain( array $params ) {
 		return [];
 	}
+
+	/**
+	 * @see Client::hasMaintenanceLock
+	 */
+	public function hasMaintenanceLock() {
+		return false;
+	}
+
+	/**
+	 * @see Client::setMaintenanceLock
+	 */
+	public function setMaintenanceLock() {}
 
 	/**
 	 * @see Client::setLock

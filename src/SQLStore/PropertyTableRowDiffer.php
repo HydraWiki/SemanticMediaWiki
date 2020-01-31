@@ -5,6 +5,7 @@ namespace SMW\SQLStore;
 use InvalidArgumentException;
 use SMW\DIProperty;
 use SMW\Exception\DataItemException;
+use SMW\Exception\PredefinedPropertyLabelMismatchException;
 use SMW\SemanticData;
 use SMW\SQLStore\ChangeOp\ChangeOp;
 use SMW\Store;
@@ -36,6 +37,11 @@ class PropertyTableRowDiffer {
 	private $changeOp;
 
 	/**
+	 * @var boolean
+	 */
+	private $checkRemnantEntities = false;
+
+	/**
 	 * @since 2.3
 	 *
 	 * @param Store $store
@@ -53,6 +59,15 @@ class PropertyTableRowDiffer {
 	 */
 	public function setChangeOp( ChangeOp $changeOp = null ) {
 		$this->changeOp = $changeOp;
+	}
+
+	/**
+	 * @since 3.1
+	 *
+	 * @param boolean $checkRemnantEntities
+	 */
+	public function checkRemnantEntities( $checkRemnantEntities ) {
+		$this->checkRemnantEntities = (bool)$checkRemnantEntities;
 	}
 
 	/**
@@ -114,6 +129,26 @@ class PropertyTableRowDiffer {
 		);
 
 		$propertyTables = $this->store->getPropertyTables();
+		$connection = $this->store->getConnection( 'mw.db' );
+
+		$fixedProperties = [];
+
+		foreach ( $propertyTables as $propertyTable ) {
+
+			if ( !$propertyTable->isFixedPropertyTable() ) {
+				continue;
+			}
+
+			try {
+				$fixedProperties[] = new DIProperty( $propertyTable->getFixedProperty() );
+			} catch( PredefinedPropertyLabelMismatchException $e ) {
+				// Do nothing!
+			}
+		}
+
+		$this->store->getObjectIds()->warmUpCache(
+			$fixedProperties
+		);
 
 		foreach ( $propertyTables as $propertyTable ) {
 
@@ -171,6 +206,28 @@ class PropertyTableRowDiffer {
 					$sid,
 					$propertyTable
 				);
+			} elseif ( $this->checkRemnantEntities ) {
+
+				// #3849
+				// Check the table that wasn't part of the old and new hash
+				$row = $connection->selectRow(
+					$propertyTable->getName(),
+					's_id',
+					[
+						's_id' => $sid
+					],
+					__METHOD__
+				);
+
+				// Find and remove any remnants (ghosts) from possible failed
+				// updates that weren't rollback correctly
+				if ( $row !== false ) {
+					$tablesInsertRows[$tableName] = [];
+					$tablesDeleteRows[$tableName] = $this->fetchCurrentContentsForPropertyTable(
+						$sid,
+						$propertyTable
+					);
+				}
 			}
 		}
 

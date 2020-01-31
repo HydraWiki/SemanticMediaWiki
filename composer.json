@@ -13,7 +13,7 @@
 	"authors": [
 		{
 			"name": "Markus Krötzsch",
-			"homepage": "http://korrekt.org/",
+			"homepage": "https://korrekt.org/",
 			"role": "Original author"
 		},
 		{
@@ -36,7 +36,7 @@
 		"source": "https://github.com/SemanticMediaWiki/SemanticMediaWiki"
 	},
 	"require": {
-		"php": ">=5.6.0",
+		"php": ">=7.1",
 		"ext-mbstring": "*",
 		"composer/installers": "1.*,>=1.0.1",
 		"psr/log": "~1.0",
@@ -52,7 +52,8 @@
 		"onoi/tesa": "~0.1",
 		"onoi/shared-resources": "~0.3",
 		"symfony/css-selector": "^3.3",
-		"elasticsearch/elasticsearch": "^5.3|^6.0"
+		"elasticsearch/elasticsearch": "^5.3|^6.0",
+		"seld/jsonlint": "^1.7"
 	},
 	"require-dev": {
 		"squizlabs/php_codesniffer": "~2.1",
@@ -66,7 +67,7 @@
 	},
 	"extra": {
 		"branch-alias": {
-			"dev-master": "3.1.x-dev"
+			"dev-master": "3.2.x-dev"
 		}
 	},
 	"autoload": {

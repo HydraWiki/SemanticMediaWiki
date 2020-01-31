@@ -16,6 +16,11 @@ use SMWDataItem as DataItem;
 abstract class DataItemHandler {
 
 	/**
+	 * Specifies a property subject index hint.
+	 */
+	const IHINT_PSUBJECTS = 'ihint.psubjects';
+
+	/**
 	 * @var SQLStore
 	*/
 	protected $store;
@@ -55,7 +60,7 @@ abstract class DataItemHandler {
 	 *
 	 * @return boolean
 	 */
-	public function isEnabledFeature( $feature ) {
+	public function hasFeature( $feature ) {
 		return ( (int)$this->fieldTypeFeatures & $feature ) != 0;
 	}
 
@@ -207,5 +212,17 @@ abstract class DataItemHandler {
 	 * @return DataItem
 	 */
 	abstract public function dataItemFromDBKeys( $dbkeys );
+
+	/**
+	 * @since 3.1
+	 *
+	 * @param array|string $dbkeys
+	 *
+	 * @return DataItem
+	 * @throws DataItemException
+	 */
+	public function newFromDBKeys( $dbkeys ) {
+		return $this->dataItemFromDBKeys( $dbkeys );
+	}
 
 }

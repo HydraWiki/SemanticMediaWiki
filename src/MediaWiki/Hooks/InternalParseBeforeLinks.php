@@ -5,6 +5,8 @@ namespace SMW\MediaWiki\Hooks;
 use Parser;
 use SMW\ApplicationFactory;
 use SMW\Parser\InTextAnnotationParser;
+use SMW\MediaWiki\HookListener;
+use SMW\OptionsAwareTrait;
 use StripState;
 
 /**
@@ -17,7 +19,7 @@ use StripState;
  *
  * @note MW 1.20+ see InternalParseBeforeSanitize
  *
- * @see http://www.mediawiki.org/wiki/Manual:Hooks/InternalParseBeforeLinks
+ * @see https://www.mediawiki.org/wiki/Manual:Hooks/InternalParseBeforeLinks
  *
  * @ingroup FunctionHook
  *
@@ -26,7 +28,9 @@ use StripState;
  *
  * @author mwjames
  */
-class InternalParseBeforeLinks extends HookHandler {
+class InternalParseBeforeLinks implements HookListener {
+
+	use OptionsAwareTrait;
 
 	/**
 	 * @var Parser
@@ -73,7 +77,7 @@ class InternalParseBeforeLinks extends HookHandler {
 
 		// #2209, #2370 Allow content to be parsed that contain [[SMW::off]]/[[SMW::on]]
 		// even in case of MediaWiki messages
-		if ( InTextAnnotationParser::hasMarker( $text ) ) {
+		if ( InTextAnnotationParser::hasMarker( $text ) || InTextAnnotationParser::hasPropertyLink( $text ) ) {
 			return true;
 		}
 

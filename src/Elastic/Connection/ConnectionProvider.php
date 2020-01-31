@@ -4,11 +4,11 @@ namespace SMW\Elastic\Connection;
 
 use Elasticsearch\ClientBuilder;
 use SMW\Elastic\Exception\ClientBuilderNotFoundException;
+use SMW\Elastic\Exception\MissingEndpointConfigException;
 use SMW\ApplicationFactory;
 use SMW\Connection\ConnectionProvider as IConnectionProvider;
-use SMW\Options;
+use SMW\Elastic\Config;
 use Psr\Log\LoggerAwareTrait;
-use Onoi\Cache\Cache;
 
 /**
  * @private
@@ -23,14 +23,14 @@ class ConnectionProvider implements IConnectionProvider {
 	use LoggerAwareTrait;
 
 	/**
-	 * @var Options
+	 * @var LockManager
 	 */
-	private $options;
+	private $lockManager;
 
 	/**
-	 * @var Cache
+	 * @var Config
 	 */
-	private $cache;
+	private $config;
 
 	/**
 	 * @var ElasticClient
@@ -40,12 +40,12 @@ class ConnectionProvider implements IConnectionProvider {
 	/**
 	 * @since 3.0
 	 *
-	 * @param Options $options
-	 * @param Cache $cache
+	 * @param LockManager $lockManager
+	 * @param config $config
 	 */
-	public function __construct( Options $options, Cache $cache ) {
-		$this->options = $options;
-		$this->cache = $cache;
+	public function __construct( LockManager $lockManager, Config $config ) {
+		$this->lockManager = $lockManager;
+		$this->config = $config;
 	}
 
 	/**
@@ -61,17 +61,24 @@ class ConnectionProvider implements IConnectionProvider {
 			return $this->connection;
 		}
 
+		$endpoints = $this->config->safeGet( Config::ELASTIC_ENDPOINTS, [] );
+		$clientBuilder = null;
+
+		if ( !$this->hasEndpoints( $endpoints ) ) {
+			throw new MissingEndpointConfigException();
+		}
+
 		$params = [
-			'hosts' => $this->options->get( 'endpoints' ),
-			'retries' => $this->options->dotGet( 'connection.retries', 1 ),
+			'hosts' => $endpoints,
+			'retries' => $this->config->dotGet( 'connection.retries', 1 ),
 
 			'client' => [
 
 				// controls the request timeout
-				'timeout' => $this->options->dotGet( 'connection.timeout', 30 ),
+				'timeout' => $this->config->dotGet( 'connection.timeout', 30 ),
 
 				// controls the original connection timeout duration
-				'connect_timeout' => $this->options->dotGet( 'connection.connect_timeout', 30 )
+				'connect_timeout' => $this->config->dotGet( 'connection.connect_timeout', 30 )
 			]
 
 			// Use `singleHandler` if you know you will never need async capabilities,
@@ -79,30 +86,19 @@ class ConnectionProvider implements IConnectionProvider {
 			// 'handler' => ClientBuilder::singleHandler()
 		];
 
-		if ( $this->hasClientBuilder() ) {
-			$this->connection = new Client(
-				ClientBuilder::fromConfig( $params, true ),
-				$this->cache,
-				$this->options
-			);
-		} else {
-			$this->connection = new DummyClient();
+		if ( $this->hasAvailableClientBuilder() ) {
+			$clientBuilder = ClientBuilder::fromConfig( $params, true );
 		}
+
+		$this->connection = $this->newClient( $clientBuilder );
 
 		$this->connection->setLogger(
 			$this->logger
 		);
 
 		$this->logger->info(
-			[
-				'Connection',
-				'{provider} : {hosts}'
-			],
-			[
-				'role' => 'developer',
-				'provider' => 'elastic',
-				'hosts' => $params['hosts']
-			]
+			[ 'Connection', '{provider} : {hosts}' ],
+			[ 'role' => 'developer', 'provider' => 'elastic', 'hosts' => $params['hosts'] ]
 		);
 
 		return $this->connection;
@@ -117,9 +113,34 @@ class ConnectionProvider implements IConnectionProvider {
 		$this->connection = null;
 	}
 
-	private function hasClientBuilder() {
+	private function newClient( $clientBuilder = null ) {
 
-		if ( $this->options->dotGet( 'is.elasticstore', false ) === false ) {
+		if ( $clientBuilder === null ) {
+			return new DummyClient();
+		}
+
+		// For unit/integration tests use a special `TestClient` to force a refresh
+		// hereby make results immediately available on some actions before
+		// the actual request is transmitted to the `Client`
+		if ( defined( 'MW_PHPUNIT_TEST' ) ) {
+			return new TestClient( $clientBuilder, $this->lockManager, $this->config );
+		}
+
+		return new Client( $clientBuilder, $this->lockManager, $this->config );
+	}
+
+	private function hasEndpoints( $endpoints ) {
+
+		if ( $this->config->isDefaultStore() === false ) {
+			return true;
+		}
+
+		return $endpoints !== [];
+	}
+
+	private function hasAvailableClientBuilder() {
+
+		if ( $this->config->isDefaultStore() === false ) {
 			return false;
 		}
 

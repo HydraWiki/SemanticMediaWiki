@@ -90,6 +90,22 @@ class PropertyAliasFinderTest extends \PHPUnit_Framework_TestCase {
 		);
 	}
 
+	public function testRegisterAliasByFixedLabel_withContentLanguage() {
+
+		$instance = new PropertyAliasFinder(
+			$this->cache
+		);
+
+		$instance->setContentLanguageCode( 'en' );
+
+		$instance->registerAliasByMsgKey( '_Foo', 'smw-bar' );
+
+		$this->assertEquals(
+			[ '⧼smw-bar⧽' => '_Foo' ],
+			$instance->getKnownPropertyAliases()
+		);
+	}
+
 	public function testGetKnownPropertyAliasesByLanguageCodeCached() {
 
 		$this->cache->expects( $this->once() )
@@ -100,11 +116,17 @@ class PropertyAliasFinderTest extends \PHPUnit_Framework_TestCase {
 			$this->cache
 		);
 
+		$instance->setContentLanguageCode( 'en' );
 		$instance->registerAliasByMsgKey( '_Foo', 'smw-bar' );
 
 		$this->assertEquals(
 			[ '⧼smw-bar⧽' => '_Foo' ],
 			$instance->getKnownPropertyAliasesByLanguageCode( 'en' )
+		);
+
+		$this->assertEquals(
+			[ '⧼smw-bar⧽' => '_Foo' ],
+			$instance->getKnownPropertyAliases()
 		);
 	}
 
@@ -120,7 +142,7 @@ class PropertyAliasFinderTest extends \PHPUnit_Framework_TestCase {
 
 		$instance->registerAliasByMsgKey( '_Foo', 'smw-bar' );
 
-		$msgKey = version_compare( $GLOBALS['wgVersion'], '1.28', '<' ) ? '<smw-bar>' : '⧼smw-bar⧽' ;
+		$msgKey = version_compare( MW_VERSION, '1.28', '<' ) ? '<smw-bar>' : '⧼smw-bar⧽' ;
 
 		$this->assertEquals(
 			[ $msgKey => '_Foo' ],

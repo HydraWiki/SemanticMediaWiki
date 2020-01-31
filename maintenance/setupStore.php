@@ -9,10 +9,17 @@ use Onoi\MessageReporter\MessageReporter;
 use SMW\ApplicationFactory;
 use SMW\SQLStore\Installer;
 use SMW\Setup;
+use SMW\Options;
+use SMW\Utils\CliMsgFormatter;
 
-$basePath = getenv( 'MW_INSTALL_PATH' ) !== false ? getenv( 'MW_INSTALL_PATH' ) : __DIR__ . '/../../..';
-
-require_once $basePath . '/maintenance/Maintenance.php';
+/**
+ * Load the required class
+ */
+if ( getenv( 'MW_INSTALL_PATH' ) !== false ) {
+	require_once getenv( 'MW_INSTALL_PATH' ) . '/maintenance/Maintenance.php';
+} else {
+	require_once __DIR__ . '/../../../maintenance/Maintenance.php';
+}
 
 /**
  * Sets up the storage backend currently selected in LocalSettings.php
@@ -71,24 +78,12 @@ class SetupStore extends \Maintenance {
 	 */
 	public function __construct() {
 		parent::__construct();
-	}
-
-	/**
-	 * @see Maintenance::addDefaultParams
-	 *
-	 * @since 2.0
-	 */
-	protected function addDefaultParams() {
-		parent::addDefaultParams();
-
-		$this->mDescription = 'Sets up the SMW storage backend currently selected in LocalSettings.php.';
+		$this->addDescription( 'Sets up the SMW storage backend currently selected in LocalSettings.php.' );
 
 		$this->addOption( 'backend', 'Execute the operation for the storage backend of the given name.', false, true, 'b' );
-
 		$this->addOption( 'delete', 'Delete all SMW data, uninstall the selected storage backend.' );
 		$this->addOption( 'skip-optimize', 'Skipping the table optimization process (not recommended).', false );
 		$this->addOption( 'skip-import', 'Skipping the import process.', false );
-
 		$this->addOption(
 			'nochecks',
 			'Run the script without providing prompts. Deletion will thus happen without the need to provide any confirmation.'
@@ -147,25 +142,38 @@ class SetupStore extends \Maintenance {
 			$connectionManager
 		);
 
+		$this->initMessageReporter();
+
 		$store->setMessageReporter(
-			$this->getMessageReporter()
+			$this->messageReporter
 		);
 
-		$store->setOption( Installer::OPT_TABLE_OPTIMIZE, !$this->hasOption( 'skip-optimize' ) );
-		$store->setOption( Installer::OPT_IMPORT, !$this->hasOption( 'skip-import' ) );
-		$store->setOption( Installer::OPT_SUPPLEMENT_JOBS, true );
+		$options = new Options(
+			[
+				Installer::OPT_TABLE_OPTIMIZE => !$this->hasOption( 'skip-optimize' ),
+				Installer::RUN_IMPORT => !$this->hasOption( 'skip-import' ),
+				Installer::OPT_SUPPLEMENT_JOBS => true,
+				'verbose' => $this->getOption( 'quiet', true )
+			]
+		);
+
+		$cliMsgFormatter = new CliMsgFormatter();
+
+		$this->messageReporter->reportMessage(
+			"\n" . $cliMsgFormatter->head()
+		);
 
 		if ( $this->hasOption( 'delete' ) ) {
 			$this->dropStore( $store );
 		} else {
-			$store->setup();
+			$store->setup( $options );
 		}
 
 		// Avoid holding a reference
 		StoreFactory::clear();
 	}
 
-	protected function getMessageReporter() {
+	protected function initMessageReporter() {
 
 		$messageReporterFactory = MessageReporterFactory::getInstance();
 
@@ -205,23 +213,23 @@ class SetupStore extends \Maintenance {
 	}
 
 	protected function dropStore( Store $store ) {
-		$storeName = get_class( $store );
 
-		$verification = $this->promptDeletionVerification( $storeName );
+		$cliMsgFormatter = new CliMsgFormatter();
 
-		if ( !$verification ) {
+		if ( !$this->hasDeletionVerification() ) {
 			return;
 		}
 
 		$store->drop( !$this->isQuiet() );
 
-		// be sure to have some buffer, otherwise some PHPs complain
-		while ( ob_get_level() > 0 ) {
-			ob_end_flush();
-		}
+		$text = [
+			"You can recreate them with this script followed by the use",
+			"of the rebuildData.php script to rebuild their contents."
+		];
 
-		$this->output( "\nYou can recreate them with this script followed by the use\n");
-		$this->output( "of the rebuildData.php script to rebuild their contents.\n");
+		$this->messageReporter->reportMessage(
+			"\n" . $cliMsgFormatter->wordwrap( $text ) . "\n"
+		);
 	}
 
 	/**
@@ -229,21 +237,28 @@ class SetupStore extends \Maintenance {
 	 *
 	 * @return boolean
 	 */
-	protected function promptDeletionVerification( $storeName ) {
-		$this->output( "You are about to delete all data stored in the SMW backend $storeName.\n" );
+	protected function hasDeletionVerification() {
 
-		if ( $storeName === $this->originalStore ) {
-			$this->output( "This backend is CURRENTLY IN USE. Deleting it is likely to BREAK YOUR WIKI.\n" );
-		} else {
-			$this->output( "This backend is not currently in use. Deleting it should not cause any problems.\n" );
-		}
-		$this->output( "To undo this operation later on, a complete refresh of the data will be needed.\n" );
+		$cliMsgFormatter = new CliMsgFormatter();
+
+		$this->messageReporter->reportMessage(
+			$cliMsgFormatter->section( 'Notice' )
+		);
+
+		$text = [
+			"You are about to delete all data stored in the SMW backend. To undo",
+			"this operation later on, a complete refresh of the data will be needed."
+		];
+
+		$this->messageReporter->reportMessage(
+			"\n" . $cliMsgFormatter->wordwrap( $text ) . "\n\n"
+		);
 
 		if ( !$this->hasOption( 'nochecks' ) ) {
 			print ( "If you are sure you want to proceed, type DELETE.\n" );
 
 			if ( $this->readconsole() !== 'DELETE' ) {
-				print ( "Aborting.\n\n" );
+				print ( "Aborting.\n" );
 				return false;
 			}
 		}
@@ -261,5 +276,5 @@ class SetupStore extends \Maintenance {
 
 }
 
-$maintClass = 'SMW\Maintenance\SetupStore';
+$maintClass = SetupStore::class;
 require_once ( RUN_MAINTENANCE_IF_MAIN );

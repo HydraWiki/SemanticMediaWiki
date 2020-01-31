@@ -1,8 +1,8 @@
 <?php
 
 use SMW\NamespaceManager;
-use SMW\ApplicationFactory;
 use SMW\Setup;
+use SMW\SetupCheck;
 
 /**
  * @codeCoverageIgnore
@@ -55,12 +55,9 @@ class SemanticMediaWiki {
 			}
 		}
 
-		if ( is_readable( __DIR__ . '/.smw.json' ) ) {
-			$GLOBALS['smw.json'] = json_decode(
-				file_get_contents( __DIR__ . '/.smw.json' ),
-				true
-			);
-		}
+		// Registration point before any `extension.json` invocation
+		// takes place
+		Setup::registerExtensionCheck( $GLOBALS );
 	}
 
 	/**
@@ -68,7 +65,24 @@ class SemanticMediaWiki {
 	 */
 	public static function initExtension( $credits = [] ) {
 
-		define( 'SMW_VERSION', isset( $credits['version'] ) ? $credits['version'] : 'N/A' );
+		if ( !defined( 'SMW_VERSION' ) && isset( $credits['version'] ) ) {
+			define( 'SMW_VERSION', $credits['version'] );
+		}
+
+		// https://phabricator.wikimedia.org/T212738
+		if ( !defined( 'MW_VERSION' ) ) {
+			define( 'MW_VERSION', $GLOBALS['wgVersion'] );
+		}
+
+		/**
+		 * @see https://www.mediawiki.org/wiki/Localisation#Localising_namespaces_and_special_page_aliases
+		 */
+		$GLOBALS['wgMessagesDirs']['SemanticMediaWiki'] = __DIR__ . '/i18n';
+		$GLOBALS['wgExtensionMessagesFiles']['SemanticMediaWikiAlias'] = __DIR__ . '/i18n/extra/SemanticMediaWiki.alias.php';
+		$GLOBALS['wgExtensionMessagesFiles']['SemanticMediaWikiMagic'] = __DIR__ . '/i18n/extra/SemanticMediaWiki.magic.php';
+
+		// Release the check after the extension was successfully loaded
+		Setup::releaseExtensionCheck( $GLOBALS );
 
 		// Registration point for required early registration
 		Setup::initExtension( $GLOBALS );
@@ -87,27 +101,11 @@ class SemanticMediaWiki {
 	 */
 	public static function onExtensionFunction() {
 
-		$applicationFactory = ApplicationFactory::getInstance();
-
 		$namespace = new NamespaceManager();
 		$namespace->init( $GLOBALS );
 
-		$setup = new Setup( $applicationFactory );
+		$setup = new Setup();
 		$setup->init( $GLOBALS, __DIR__ );
-	}
-
-	/**
-	 * @since 2.4
-	 *
-	 * @return string|null
-	 */
-	public static function getVersion() {
-
-		if ( !defined( 'SMW_VERSION' ) ) {
-			return null;
-		}
-
-		return SMW_VERSION;
 	}
 
 }

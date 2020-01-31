@@ -133,7 +133,7 @@ class PrintRequest {
 			return;
 		}
 
-		$this->labelMarker = $text !== '' && $text{0} === '#';
+		$this->labelMarker = $text !== '' && $text[0] === '#';
 	}
 
 	/**
@@ -351,12 +351,19 @@ class PrintRequest {
 	 * @since 2.4
 	 *
 	 * @param string $text
-	 * @param $showMode = false
+	 * @param boalean $showMode = false
+	 * @param boolean $useCanonicalLabel = false
 	 *
 	 * @return PrintRequest|null
 	 */
-	public static function newFromText( $text, $showMode = false ) {
-		return Deserializer::deserialize( $text, $showMode );
+	public static function newFromText( $text, $showMode = false, $useCanonicalLabel = false ) {
+
+		$options = [
+			'show_mode' => $showMode,
+			'canonical_label' => $useCanonicalLabel
+		];
+
+		return Deserializer::deserialize( $text, $options );
 	}
 
 }

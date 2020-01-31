@@ -56,7 +56,7 @@ class SpecialBrowse extends SpecialPage {
 		}
 
 		// Auto-generated link is marked with a leading :
-		if ( $query !== '' && $query{0} === ':' ) {
+		if ( $query !== '' && $query[0] === ':' ) {
 			$articletext = Encoder::unescape( $query );
 		} elseif ( $articletext === null ) {
 			$articletext = $query;
@@ -72,7 +72,7 @@ class SpecialBrowse extends SpecialPage {
 		);
 
 		$out = $this->getOutput();
-		$out->setHTMLTitle( $dataValue->getTitle() );
+		$out->setHTMLTitle( $dataValue->getWikiValue() );
 
 		$out->addModuleStyles( [
 			'mediawiki.ui',
@@ -83,7 +83,7 @@ class SpecialBrowse extends SpecialPage {
 
 		$out->addModules( [
 			'ext.smw.browse',
-			'ext.smw.tooltip'
+			'ext.smw.tooltips'
 		] );
 
 		$out->addHTML(
@@ -100,9 +100,10 @@ class SpecialBrowse extends SpecialPage {
 		}
 
 		if ( !$dataValue->isValid() ) {
+			$error = '';
 
 			foreach ( $dataValue->getErrors() as $error ) {
-				$error = Message::decode( $error, Message::TEXT, Message::USER_LANGUAGE );
+				$error .= Message::decode( $error, Message::TEXT, Message::USER_LANGUAGE );
 			}
 
 			$html = Html::rawElement(
@@ -195,7 +196,9 @@ class SpecialBrowse extends SpecialPage {
 		}
 
 		if ( $dataValue->isValid() ) {
-			$link = SpecialPage::getTitleFor( 'ExportRDF', $dataValue->getTitle()->getPrefixedText() );
+			$dataItem = $dataValue->getDataItem();
+
+			$title = SpecialPage::getTitleFor( 'ExportRDF', $dataItem->getTitle()->getPrefixedText() );
 
 			$this->getOutput()->setIndicators( [
 				'browse' => Html::rawElement(
@@ -206,7 +209,7 @@ class SpecialBrowse extends SpecialPage {
 					Html::rawElement(
 						'a',
 						[
-							'href' => $link->getLocalUrl( 'syntax=rdf' )
+							'href' => $title->getLocalUrl( 'syntax=rdf' )
 						],
 						'RDF'
 					)
@@ -217,8 +220,17 @@ class SpecialBrowse extends SpecialPage {
 		$this->addHelpLink( wfMessage( 'smw-specials-browse-helplink' )->escaped(), true );
 	}
 
+	/**
+	 * @see SpecialPage::getGroupName
+	 */
 	protected function getGroupName() {
-		return 'smw_group';
+
+		if ( version_compare( MW_VERSION, '1.33', '<' ) ) {
+			return 'smw_group';
+		}
+
+		// #3711, MW 1.33+
+		return 'smw_group/search';
 	}
 
 }

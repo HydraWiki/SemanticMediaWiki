@@ -3,7 +3,8 @@
 namespace SMW\MediaWiki\Hooks;
 
 use Page;
-use SMW\Page\PageFactory;
+use SMW\MediaWiki\PageFactory;
+use SMW\MediaWiki\HookListener;
 use SMW\Store;
 use Title;
 
@@ -18,7 +19,7 @@ use Title;
  *
  * @author mwjames
  */
-class ArticleFromTitle extends HookHandler {
+class ArticleFromTitle implements HookListener {
 
 	/**
 	 * @var Store

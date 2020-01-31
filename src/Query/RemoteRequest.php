@@ -114,6 +114,8 @@ class RemoteRequest implements QueryEngine {
 
 		$isFromCache = false;
 		$isDisabled = false;
+		$count = 0;
+		$hasFurtherResults = false;
 
 		if ( $this->httpRequest instanceof CachedCurlRequest ) {
 			$isFromCache = $this->httpRequest->isFromCache();
@@ -130,7 +132,12 @@ class RemoteRequest implements QueryEngine {
 			$result = $this->error( 'smw-remote-source-unmatched-id', $source );
 			$isDisabled = true;
 		} else {
-			$result = str_replace( self::REQUEST_ID, '', $result );
+
+			list( $count, $hasFurtherResults ) = $this->findExtraInformation(
+				$result
+			);
+
+			$result = substr( $result, 0, strpos( $result, self::REQUEST_ID ) );
 		}
 
 		// Add an information note depending on the context before the actual output
@@ -143,9 +150,10 @@ class RemoteRequest implements QueryEngine {
 			return $this->format_result( $result, $options );
 		};
 
-		$stringResult = new StringResult( $result, $query );
+		$stringResult = new StringResult( $result, $query, $hasFurtherResults );
 		$stringResult->setPreOutputCallback( $callback );
 		$stringResult->setFromCache( $isFromCache );
+		$stringResult->setCount( $count );
 
 		if ( $query->getQueryMode() === Query::MODE_COUNT ) {
 			$stringResult->setCountValue( $result );
@@ -191,6 +199,31 @@ class RemoteRequest implements QueryEngine {
 		) . $result;
 	}
 
+	private function findExtraInformation( &$result ) {
+		$count = 0;
+		$hasFurtherResults = false;
+
+		preg_match_all('/<!--(.*?)-->/', $result, $matches );
+
+		if ( $matches !== [] ) {
+			foreach ( $matches[1] as $val ) {
+				list( $k, $v ) = explode( ':', $val );
+
+				if ( $k === 'COUNT' ) {
+					$count = intval( $v );
+				} elseif ( $k === 'FURTHERRESULTS' ) {
+					$hasFurtherResults = (bool)$v;
+				}
+			}
+
+			foreach ( $matches[0] as $val ) {
+				$result = str_replace( $val, '', $result );
+			}
+		}
+
+		return [ $count, $hasFurtherResults ];
+	}
+
 	private function further_link( $query ) {
 
 		$link = QueryLinker::get( $query );
@@ -229,7 +262,7 @@ class RemoteRequest implements QueryEngine {
 
 			$this->httpRequest->setOption(
 				ONOI_HTTP_REQUEST_RESPONSECACHE_PREFIX,
-				Site::prefix( 'smw:query:remote:' )
+				Site::id( 'smw:query:remote:' )
 			);
 		}
 

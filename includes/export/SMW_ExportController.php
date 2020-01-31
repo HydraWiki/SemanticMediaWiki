@@ -70,7 +70,12 @@ class SMWExportController {
 	/**
 	 * @var DeepRedirectTargetResolver
 	 */
-	private $deepRedirectTargetResolver = null;
+	private $deepRedirectTargetResolver;
+
+	/**
+	 * @var NamespaceExaminer
+	 */
+	private $namespaceExaminer;
 
 	/**
 	 * Constructor.
@@ -477,7 +482,7 @@ class SMWExportController {
 		} else { // use empty URI, i.e. "location" as URI otherwise
 			$ontologyuri = '';
 		}
-		$this->serializer->serializeExpData( SMWExporter::getInstance()->getOntologyExpData( $ontologyuri ) );
+		$this->serializer->serializeExpData( SMWExporter::getInstance()->newOntologyExpData( $ontologyuri ) );
 
 		while ( count( $this->element_queue ) > 0 ) {
 			$diPage = reset( $this->element_queue );
@@ -532,12 +537,12 @@ class SMWExportController {
 	 */
 	protected function printAll( $ns_restriction = false, $delay, $delayeach ) {
 		$linkCache = LinkCache::singleton();
-		$db = wfGetDB( DB_SLAVE );
+		$db = wfGetDB( DB_REPLICA );
 
 		$this->delay_flush = 10;
 
 		$this->serializer->startSerialization();
-		$this->serializer->serializeExpData( SMWExporter::getInstance()->getOntologyExpData( '' ) );
+		$this->serializer->serializeExpData( SMWExporter::getInstance()->newOntologyExpData( '' ) );
 
 		$end = $db->selectField( 'page', 'max(page_id)', false, __METHOD__ );
 		$a_count = 0; // DEBUG
@@ -546,7 +551,7 @@ class SMWExportController {
 
 		for ( $id = 1; $id <= $end; $id += 1 ) {
 			$title = Title::newFromID( $id );
-			if ( is_null( $title ) || !\SMW\NamespaceExaminer::getInstance()->isSemanticEnabled( $title->getNamespace() ) ) {
+			if ( is_null( $title ) || !$this->isSemanticEnabled( $title->getNamespace() ) ) {
 				continue;
 			}
 			if ( !self::fitsNsRestriction( $ns_restriction, $title->getNamespace() ) ) {
@@ -562,7 +567,7 @@ class SMWExportController {
 				$this->serializePage( $diPage, $diPage->recdepth );
 				// resolve dependencies that will otherwise not be printed
 				foreach ( $this->element_queue as $key => $diaux ) {
-					if ( !\SMW\NamespaceExaminer::getInstance()->isSemanticEnabled( $diaux->getNamespace() ) ||
+					if ( !$this->isSemanticEnabled( $diaux->getNamespace() ) ||
 					     !self::fitsNsRestriction( $ns_restriction, $diaux->getNamespace() ) ) {
 						// Note: we do not need to check the cache to guess if an element was already
 						// printed. If so, it would not be included in the queue in the first place.
@@ -597,13 +602,13 @@ class SMWExportController {
 	public function printPageList( $offset = 0, $limit = 30 ) {
 		global $smwgNamespacesWithSemanticLinks;
 
-		$db = wfGetDB( DB_SLAVE );
+		$db = wfGetDB( DB_REPLICA );
 		$this->prepareSerialization();
 		$this->delay_flush = 35; // don't do intermediate flushes with default parameters
 		$linkCache = LinkCache::singleton();
 
 		$this->serializer->startSerialization();
-		$this->serializer->serializeExpData( SMWExporter::getInstance()->getOntologyExpData( '' ) );
+		$this->serializer->serializeExpData( SMWExporter::getInstance()->newOntologyExpData( '' ) );
 
 		$query = '';
 		foreach ( $smwgNamespacesWithSemanticLinks as $ns => $enabled ) {
@@ -710,7 +715,7 @@ class SMWExportController {
 		}
 
 		$this->serializer->startSerialization();
-		$this->serializer->serializeExpData( SMWExporter::getInstance()->getOntologyExpData( '' ) );
+		$this->serializer->serializeExpData( SMWExporter::getInstance()->newOntologyExpData( '' ) );
 		$this->serializer->serializeExpData( $expData );
 
 		// link to list of existing pages:
@@ -763,6 +768,15 @@ class SMWExportController {
 		}
 
 		return $this->deepRedirectTargetResolver;
+	}
+
+	private function isSemanticEnabled( $namespace ) {
+
+		if ( $this->namespaceExaminer === null ) {
+			$this->namespaceExaminer = ApplicationFactory::getInstance()->getNamespaceExaminer();
+		}
+
+		return $this->namespaceExaminer->isSemanticEnabled( $namespace );
 	}
 
 }

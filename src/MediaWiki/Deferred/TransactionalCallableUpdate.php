@@ -4,6 +4,7 @@ namespace SMW\MediaWiki\Deferred;
 
 use Closure;
 use SMW\MediaWiki\Database;
+use SMW\Site;
 
 /**
  * Extends DeferredCallableUpdate to allow handling of transaction related tasks
@@ -46,6 +47,23 @@ class TransactionalCallableUpdate extends CallableUpdate {
 	 * @var boolean
 	 */
 	private $autoCommit = false;
+
+	/**
+	 * @since 3.1
+	 *
+	 * @param callable $callback
+	 * @param Database $instance
+	 */
+	public static function newUpdate( callable $callback, Database $connection ) {
+
+		$transactionalCallableUpdate = new self( $callback, $connection );
+
+		$transactionalCallableUpdate->isCommandLineMode(
+			Site::isCommandLineMode()
+		);
+
+		return $transactionalCallableUpdate;
+	}
 
 	/**
 	 * @since 3.0
@@ -171,37 +189,29 @@ class TransactionalCallableUpdate extends CallableUpdate {
 	 */
 	public function cancelOnRollback( $trigger ) {
 		if ( $trigger === Database::TRIGGER_ROLLBACK ) {
-			$this->callback = null;
+			$this->callback = [ $this, 'emptyCancelCallback' ];
 		}
 	}
 
-	protected function addUpdate( $update ) {
+	protected function registerUpdate( $update ) {
 
 		if ( $this->onTransactionIdle ) {
 			$this->logger->info(
-				[
-					'DeferrableUpdate',
-					'Transactional',
-					'Added: {origin} (onTransactionIdle)'
-				],
-				[
-					'method' => __METHOD__,
-					'role' => 'developer',
-					'origin' => $this->getOrigin()
-				]
+				[ 'DeferrableUpdate', 'Transactional', 'Added: {origin} (onTransactionIdle)' ],
+				[ 'method' => __METHOD__, 'role' => 'developer', 'origin' => $this->getOrigin() ]
 			);
 
 			return $this->connection->onTransactionIdle( function() use( $update ) {
 				$update->onTransactionIdle = false;
-				parent::addUpdate( $update );
+				parent::registerUpdate( $update );
 			} );
 		}
 
-		parent::addUpdate( $update );
+		parent::registerUpdate( $update );
 	}
 
-	protected function getLoggableContext() {
-		return parent::getLoggableContext() + [
+	protected function loggableContext() {
+		return parent::loggableContext() + [
 			'transactionTicket' => $this->transactionTicket
 		];
 	}
@@ -209,16 +219,8 @@ class TransactionalCallableUpdate extends CallableUpdate {
 	private function runOnTransactionIdle() {
 		$this->connection->onTransactionIdle( function() {
 			$this->logger->info(
-				[
-					'DeferrableUpdate',
-					'Transactional',
-					'Update: {origin} (onTransactionIdle)'
-				],
-				[
-					'method' => __METHOD__,
-					'role' => 'developer',
-					'origin' => $this->getOrigin()
-				]
+				[ 'DeferrableUpdate', 'Transactional', 'Update: {origin} (onTransactionIdle)' ],
+				[ 'method' => __METHOD__, 'role' => 'developer', 'origin' => $this->getOrigin() ]
 			);
 			$this->onTransactionIdle = false;
 			$this->doUpdate();
@@ -228,17 +230,8 @@ class TransactionalCallableUpdate extends CallableUpdate {
 	private function runPreCommitCallbacks() {
 		foreach ( $this->preCommitableCallbacks as $fname => $preCallback ) {
 			$this->logger->info(
-				[
-					'DeferrableUpdate',
-					'Transactional',
-					'Update: {origin} (pre-commitable callback: {fname})'
-				],
-				[
-					'method' => __METHOD__,
-					'role' => 'developer',
-					'origin' => $this->getOrigin(),
-					'fname' => $fname
-				]
+				[ 'DeferrableUpdate', 'Transactional', 'Update: {origin} (pre-commitable callback: {fname})' ],
+				[ 'method' => __METHOD__, 'role' => 'developer', 'origin' => $this->getOrigin(), 'fname' => $fname ]
 			);
 
 			call_user_func( $preCallback, $this->transactionTicket );
@@ -248,21 +241,19 @@ class TransactionalCallableUpdate extends CallableUpdate {
 	private function runPostCommitCallbacks() {
 		foreach ( $this->postCommitableCallbacks as $fname => $postCallback ) {
 			$this->logger->info(
-				[
-					'DeferrableUpdate',
-					'Transactional',
-					'Update: {origin} (post-commitable callback: {fname})'
-				],
-				[
-					'method' => __METHOD__,
-					'role' => 'developer',
-					'origin' => $this->getOrigin(),
-					'fname' => $fname
-				]
+				[ 'DeferrableUpdate', 'Transactional', 'Update: {origin} (post-commitable callback: {fname})' ],
+				[ 'method' => __METHOD__, 'role' => 'developer', 'origin' => $this->getOrigin(), 'fname' => $fname ]
 			);
 
 			call_user_func( $postCallback, $this->transactionTicket );
 		}
+	}
+
+	protected function emptyCancelCallback() {
+		$this->logger->info(
+			[ 'DeferrableUpdate', 'cancelOnRollback' ],
+			[ 'role' => 'developer', 'method' => __METHOD__ ]
+		);
 	}
 
 }

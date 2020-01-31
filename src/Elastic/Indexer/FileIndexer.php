@@ -8,10 +8,12 @@ use Psr\Log\LoggerAwareTrait;
 use RuntimeException;
 use SMW\ApplicationFactory;
 use SMW\DIWikiPage;
+use SMW\DIProperty;
 use SMW\Elastic\Connection\Client as ElasticClient;
 use SMW\Elastic\QueryEngine\FieldMapper;
 use SMW\Store;
 use SMWContainerSemanticData as ContainerSemanticData;
+use SMW\MediaWiki\RevisionGuard;
 use Title;
 
 /**
@@ -29,6 +31,8 @@ class FileIndexer {
 	use MessageReporterAwareTrait;
 	use LoggerAwareTrait;
 
+	const INGEST_RESPONSE = 'es.ingest.response';
+
 	/**
 	 * @var Indexer
 	 */
@@ -43,6 +47,11 @@ class FileIndexer {
 	 * @var boolean
 	 */
 	private $sha1Check = true;
+
+	/**
+	 * @var callable
+	 */
+	private $readCallback;
 
 	/**
 	 * @since 3.0
@@ -74,13 +83,58 @@ class FileIndexer {
 	 *
 	 * @param File|null $file
 	 */
-	public function planIngestJob( Title $title ) {
+	public function pushIngestJob( Title $title, array $params = [] ) {
+
+		$params = $params + [ 'waitOnCommandLine' => true ];
 
 		$fileIngestJob = new FileIngestJob(
-			$title
+			$title,
+			array_merge( $params, FileIngestJob::newRootJobParams( 'smw.fileIngestJob', $title ) )
 		);
 
 		$fileIngestJob->lazyPush();
+	}
+
+	/**
+	 * @since 3.1
+	 *
+	 * @param callable $readCallback
+	 */
+	public function setReadCallback( callable $readCallback ) {
+		$this->readCallback = $readCallback;
+	}
+
+	/**
+	 * @since 3.1
+	 *
+	 * @param string $url
+	 *
+	 * @return string
+	 */
+	public function readURL( $url ) {
+
+		//PHP 7.1+
+		$readCallback = $this->readCallback;
+
+		if ( $this->readCallback !== null ) {
+			return $readCallback( $url );
+		}
+
+		$contents = '';
+
+		// Avoid a "failed to open stream: HTTP request failed! HTTP/1.1 404 Not Found"
+		$file_headers = @get_headers( $url );
+
+		if ( $file_headers !== false && $file_headers[0] !== 'HTTP/1.1 404 Not Found' && $file_headers[0] !== 'HTTP/1.0 404 Not Found' ) {
+			return file_get_contents( $url );
+		}
+
+		$this->logger->info(
+			[ 'File indexer', 'HTTP/1.1 404 Not Found', '{url}' ],
+			[ 'method' => __METHOD__, 'role' => 'production', 'origin' => $this->origin, 'url' => $url ]
+		);
+
+		return $contents;
 	}
 
 	/**
@@ -106,6 +160,19 @@ class FileIndexer {
 	 * @param File|null $file
 	 */
 	public function index( DIWikiPage $dataItem, File $file = null ) {
+
+		$title = $dataItem->getTitle();
+
+		// Allow any third-party extension to modify the file used as base for
+		// the index process
+		$file = RevisionGuard::getFile( $title, $file );
+
+		if ( $file !== null && isset( $file->file_sha1 ) ) {
+			$this->logger->info(
+				[ 'File indexer', 'Forced file_sha1 change: {file_sha1}' ],
+				[ 'file_sha1' => $file->file_sha1 ]
+			);
+		}
 
 		if ( $dataItem->getId() == 0 ) {
 			$dataItem->setId( $this->indexer->getId( $dataItem ) );
@@ -141,7 +208,7 @@ class FileIndexer {
 		$connection->ingest()->putPipeline( $params );
 
 		if ( $file === null ) {
-			$file = wfFindFile( $dataItem->getTitle() );
+			$file = wfFindFile( $title );
 		}
 
 		if ( $file === false || $file === null ) {
@@ -193,16 +260,7 @@ class FileIndexer {
 			return $this->logger->info( $msg, $context );
 		}
 
-		$contents = '';
-
-		// Avoid a "failed to open stream: HTTP request failed! HTTP/1.1 404 Not Found"
-		$file_headers = @get_headers( $url );
-
-		if ( $file_headers[0] !== 'HTTP/1.1 404 Not Found' && $file_headers[0] !== 'HTTP/1.0 404 Not Found' ) {
-			$contents = file_get_contents( $url );
-		} else {
-			$this->logger->info( [ 'File indexer', "HTTP/1.1 404 Not Found for $url" ], $context );
-		}
+		$contents = $this->readURL( $url );
 
 		$params += [
 			'pipeline' => 'attachment',
@@ -215,24 +273,36 @@ class FileIndexer {
 
 		$context['response'] = $connection->index( $params );
 		$context['procTime'] = microtime( true ) + $time;
+		$context['file_sha1'] = $sha1;
 
 		$msg = [
 			'File indexer',
 			'Ingest process completed ({subject})',
 			'procTime (in sec): {procTime}',
-			'Response: {response}'
+			'Response: {response}',
+			'file_sha1:{file_sha1}'
 		];
 
 		$this->logger->info( $msg, $context );
+
+		// Store the response temporary to allow the `replication status` board
+		// to show whether some files had issues during the indexing and need
+		// intervention from a user
+		$entityCache = ApplicationFactory::getInstance()->getEntityCache();
+		$key = $entityCache->makeCacheKey( $title, self::INGEST_RESPONSE );
+
+		$entityCache->save( $key, $context['response'] );
+		$entityCache->associate( $title, $key );
 
 		// Don't use the ElasticStore otherwise we index the added fields once more
 		// and hereby remove the content from the attachment! and start a circle
 		// since the annotation update can only happen after the information is
 		// retrieved from ES.
-		$this->addAnnotation(
-			ApplicationFactory::getInstance()->getStore( '\SMW\SQLStore\SQLStore' ),
-			$dataItem
+		$store = ApplicationFactory::getInstance()->getStore(
+			'\SMW\SQLStore\SQLStore'
 		);
+
+		$this->addAnnotation( $store, $dataItem );
 	}
 
 	/**
@@ -323,7 +393,9 @@ class FileIndexer {
 
 		// Remove any existing `_FILE_ATTCH` in case it was a reupload with a different
 		// content sha1
-		$semanticData->removeProperty( $property );
+		foreach ( $semanticData->getPropertyValues( $property ) as $pv ) {
+			$semanticData->removePropertyObjectValue( $property, $pv );
+		}
 
 		$semanticData->addPropertyObjectValue(
 			$property,
@@ -331,6 +403,7 @@ class FileIndexer {
 		);
 
 		$callableUpdate = ApplicationFactory::getInstance()->newDeferredTransactionalCallableUpdate( function() use( $store, $semanticData, $attachmentAnnotator ) {
+
 			// Update the SQLStore with the annotated information which will NOT
 			// trigger another ES index update BUT ...
 			$store->updateData( $semanticData );

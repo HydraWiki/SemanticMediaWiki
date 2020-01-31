@@ -10,7 +10,7 @@ use JsonSerializable;
  *
  * @author mwjames
  */
-class SchemaDefinition implements Schema, JsonSerializable {
+class SchemaDefinition extends Compartment implements Schema {
 
 	/**
 	 * @var string
@@ -20,34 +20,34 @@ class SchemaDefinition implements Schema, JsonSerializable {
 	/**
 	 * @var array
 	 */
-	protected $definition = [];
-
-	/**
-	 * @var string|null
-	 */
-	private $validation_schema;
+	private $info = [];
 
 	/**
 	 * @since 3.0
 	 *
 	 * @param string $name
 	 * @param array $definition
-	 * @param string|null $validation_schema
+	 * @param array $info
 	 */
-	public function __construct( $name, array $definition, $validation_schema = null ) {
+	public function __construct( $name, array $definition, array $info = [] ) {
+		parent::__construct( $definition );
 		$this->name = $name;
-		$this->definition = $definition;
-		$this->validation_schema = $validation_schema;
+		$this->info = $info;
 	}
 
 	/**
-	 * @see Schema::get
+	 * @see Schema::info
 	 * @since 3.0
 	 *
-	 * @return mixed|null
+	 * @return string|null
 	 */
-	public function get( $key, $default = null ) {
-		return $this->digDeep( $this->definition, $key, $default );
+	public function info( $key, $default = null ) {
+
+		if ( isset( $this->info[$key] ) ) {
+			return $this->info[$key];
+		}
+
+		return $default;
 	}
 
 	/**
@@ -61,50 +61,12 @@ class SchemaDefinition implements Schema, JsonSerializable {
 	}
 
 	/**
-	 * @see Schema::getValidationSchema
-	 * @since 3.0
+	 * @since 3.1
 	 *
-	 * @return string|null
+	 * @return []
 	 */
-	public function getValidationSchema() {
-		return $this->validation_schema;
-	}
-
-	/**
-	 * @since 3.0
-	 *
-	 * @return string
-	 */
-	 public function jsonSerialize() {
-		return json_encode( $this->definition );
-	}
-
-	/**
-	 * @since 3.0
-	 *
-	 * @return string
-	 */
-	 public function __toString() {
-		return $this->jsonSerialize();
-	}
-
-	private function digDeep( $array, $key, $default ) {
-
-		if ( strpos( $key, '.' ) !== false ) {
-			$list = explode( '.', $key, 2 );
-
-			foreach ( $list as $k => $v ) {
-				if ( isset( $array[$v] ) ) {
-					return $this->digDeep( $array[$v], $list[$k+1], $default );
-				}
-			}
-		}
-
-		if ( isset( $array[$key] ) ) {
-			return $array[$key];
-		}
-
-		return $default;
+	 public function toArray() {
+		return $this->data;
 	}
 
 }

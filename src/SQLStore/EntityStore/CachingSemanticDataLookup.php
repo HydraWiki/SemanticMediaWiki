@@ -57,6 +57,11 @@ class CachingSemanticDataLookup {
 	private static $lookupCount = 0;
 
 	/**
+	 * @var array
+	 */
+	private static $prefetch = [];
+
+	/**
 	 * @since 3.0
 	 *
 	 * @param SemanticDataLookup $semanticDataLookup
@@ -101,6 +106,7 @@ class CachingSemanticDataLookup {
 	public static function clear() {
 		self::$data = [];
 		self::$state = [];
+		self::$prefetch = [];
 		self::$lookupCount = 0;
 	}
 
@@ -194,6 +200,52 @@ class CachingSemanticDataLookup {
 	}
 
 	/**
+	 * @since 3.1
+	 *
+	 * @param array $subjects
+	 * @param DataItem $dataItem
+	 * @param PropertyTableDefinition $propertyTableDef
+	 * @param RequestOptions $requestOptions
+	 *
+	 * @return []
+	 */
+	public function prefetchDataFromTable( array $subjects, DataItem $dataItem = null, PropertyTableDefinition $propertyTableDef, RequestOptions $requestOptions = null ) {
+
+		$hash = '';
+
+		if ( $dataItem !== null ) {
+			$hash .= $dataItem->getSerialization();
+		}
+
+		if (  $requestOptions !== null ) {
+			$hash .= $requestOptions->getHash();
+		}
+
+		// Use `PREFETCH_FINGERPRINT` if available otherwise make a fingerprint
+		// to allow for caching possible repeated requests
+		if ( $requestOptions === null || $requestOptions->getOption( RequestOptions::PREFETCH_FINGERPRINT ) === null ) {
+			foreach ( $subjects as $subject ) {
+				$hash .= $subject->getHash();
+			}
+		}
+
+		$hash = md5( $hash );
+
+		if ( isset( self::$prefetch[$hash] ) && self::$prefetch[$hash] !== [] ) {
+			return self::$prefetch[$hash];
+		}
+
+		$data = $this->semanticDataLookup->prefetchDataFromTable(
+			$subjects,
+			$dataItem,
+			$propertyTableDef,
+			$requestOptions
+		);
+
+		return self::$prefetch[$hash] = $data;
+	}
+
+	/**
 	 * @since 3.0
 	 *
 	 * @param integer $id
@@ -203,8 +255,8 @@ class CachingSemanticDataLookup {
 	 *
 	 * @return RequestOptions|null
 	 */
-	public function fetchSemanticData( $id, DataItem $dataItem = null, PropertyTableDefinition $propertyTableDef, RequestOptions $requestOptions = null ) {
-		return $this->semanticDataLookup->fetchSemanticData( $id, $dataItem, $propertyTableDef, $requestOptions );
+	public function fetchSemanticDataFromTable( $id, DataItem $dataItem = null, PropertyTableDefinition $propertyTableDef, RequestOptions $requestOptions = null ) {
+		return $this->semanticDataLookup->fetchSemanticDataFromTable( $id, $dataItem, $propertyTableDef, $requestOptions );
 	}
 
 	/**
@@ -217,7 +269,7 @@ class CachingSemanticDataLookup {
 	 *
 	 * @return SemanticData
 	 */
-	public function getSemanticDataFromTable( $id, DataItem $dataItem = null, PropertyTableDefinition $propertyTableDef, RequestOptions $requestOptions = null ) {
+	public function getSemanticData( $id, DataItem $dataItem = null, PropertyTableDefinition $propertyTableDef, RequestOptions $requestOptions = null ) {
 
 		// Avoid the cache when a request is constrainted
 		if ( $requestOptions !== null || !$dataItem instanceof DIWikiPage ) {
@@ -252,7 +304,7 @@ class CachingSemanticDataLookup {
 			return self::$data[$id];
 		}
 
-		$data = $this->semanticDataLookup->fetchSemanticData(
+		$data = $this->semanticDataLookup->fetchSemanticDataFromTable(
 			$id,
 			$dataItem,
 			$propertyTableDef

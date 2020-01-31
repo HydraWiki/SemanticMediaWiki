@@ -10,10 +10,10 @@
 			"Theklan",
 			"Fitoschido",
 			"Amaia",
-			"EukeneFL"
+			"EukeneFL",
+			"Xabier Armendaritz"
 		]
 	},
-	"smw-title": "MediaWiki semantikoa",
 	"smw-semantics-not-enabled": "MediaWiki Semantikoaren funtzionalitatea ez da wiki honetarako gaitu.",
 	"smw_viewasrdf": "RDF jarioa",
 	"smw_finallistconjunct": ", eta",
@@ -136,7 +136,7 @@
 	"smw-statistics": "Estatistika semantikoak",
 	"smw-statistics-property-instance": "Propietate {{PLURAL:$1|balioa|balioak}} (guztira)",
 	"smw-statistics-property-total": "[[Special:Properties|{{PLURAL:$1|Propietatea|Propietateak}}]] (guztira)",
-	"smw-statistics-query-size": "Kontsultaren tamainia",
+	"smw-statistics-query-size": "Kontsultaren tamaina",
 	"smw-statistics-concept-count-legacy": "{{PLURAL:$1|Kontzeptua|Kontzeptuak}}",
 	"smw-statistics-concept-count": "[[Special:Concepts|{{PLURAL:$1|Kontzeptua|Kontzeptuak}}]]",
 	"smw-statistics-datatype-count": "[[Special:Motak|{{PLURAL:$1|Datu mota|Datu motak}}]]",
@@ -277,7 +277,6 @@
 	"smw-admin-idlookup-input": "Bilatu:",
 	"smw-admin-objectid": "ID:",
 	"smw-admin-tab-general": "Ikuspegi orokorra",
-	"smw-admin-tab-rebuild": "Mantenimendua",
 	"smw-admin-tab-supplement": "Funtzio osagarriak",
 	"smw-admin-tab-registry": "Erregistroa",
 	"smw-livepreview-loading": "Kargatzen…",

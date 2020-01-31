@@ -21,18 +21,30 @@ class LinksUpdateConstructedTest extends \PHPUnit_Framework_TestCase {
 
 	private $testEnvironment;
 	private $namespaceExaminer;
+	private $spyLogger;
+	private $revisionGuard;
+
 
 	protected function setUp() {
 		parent::setUp();
 
 		$this->testEnvironment = new TestEnvironment();
+		$this->spyLogger = $this->testEnvironment->newSpyLogger();
+
+		$this->revisionGuard = $this->getMockBuilder( '\SMW\MediaWiki\RevisionGuard' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$this->revisionGuard->expects( $this->any() )
+			->method( 'isSkippableUpdate' )
+			->will( $this->returnValue( false ) );
 
 		$this->namespaceExaminer = $this->getMockBuilder( '\SMW\NamespaceExaminer' )
 			->disableOriginalConstructor()
 			->getMock();
 
 		$idTable = $this->getMockBuilder( '\stdClass' )
-			->setMethods( [ 'exists' ] )
+			->setMethods( [ 'exists', 'findAssociatedRev' ] )
 			->getMock();
 
 		$store = $this->getMockBuilder( '\SMW\SQLStore\SQLStore' )
@@ -45,6 +57,7 @@ class LinksUpdateConstructedTest extends \PHPUnit_Framework_TestCase {
 			->will( $this->returnValue( $idTable ) );
 
 		$this->testEnvironment->registerObject( 'Store', $store );
+		$this->testEnvironment->registerObject( 'RevisionGuard', $this->revisionGuard );
 	}
 
 	protected function tearDown() {
@@ -71,6 +84,10 @@ class LinksUpdateConstructedTest extends \PHPUnit_Framework_TestCase {
 			->will( $this->returnValue( 11001 ) );
 
 		$title->expects( $this->any() )
+			->method( 'getLatestRevID' )
+			->will( $this->returnValue( 9999 ) );
+
+		$title->expects( $this->any() )
 			->method( 'getDBKey' )
 			->will( $this->returnValue( __METHOD__ ) );
 
@@ -90,12 +107,16 @@ class LinksUpdateConstructedTest extends \PHPUnit_Framework_TestCase {
 		$parserOutput->setTitleText( $title->getPrefixedText() );
 
 		$idTable = $this->getMockBuilder( '\stdClass' )
-			->setMethods( [ 'exists' ] )
+			->setMethods( [ 'exists', 'findAssociatedRev' ] )
 			->getMock();
 
 		$idTable->expects( $this->atLeastOnce() )
 			->method( 'exists' )
 			->will( $this->returnValue( true ) );
+
+		$idTable->expects( $this->atLeastOnce() )
+			->method( 'findAssociatedRev' )
+			->will( $this->returnValue( 42 ) );
 
 		$store = $this->getMockBuilder( '\SMW\SQLStore\SQLStore' )
 			->disableOriginalConstructor()
@@ -115,7 +136,12 @@ class LinksUpdateConstructedTest extends \PHPUnit_Framework_TestCase {
 			$this->namespaceExaminer
 		);
 
-		$instance->setLogger( $this->testEnvironment->newSpyLogger() );
+		$instance->setLogger( $this->spyLogger );
+
+		$instance->setRevisionGuard(
+			$this->revisionGuard
+		);
+
 		$instance->disableDeferredUpdate();
 
 		$this->assertTrue(
@@ -159,6 +185,10 @@ class LinksUpdateConstructedTest extends \PHPUnit_Framework_TestCase {
 
 		$instance = new LinksUpdateConstructed(
 			$this->namespaceExaminer
+		);
+
+		$instance->setRevisionGuard(
+			$this->revisionGuard
 		);
 
 		$this->assertTrue(
@@ -208,6 +238,10 @@ class LinksUpdateConstructedTest extends \PHPUnit_Framework_TestCase {
 			$this->namespaceExaminer
 		);
 
+		$instance->setRevisionGuard(
+			$this->revisionGuard
+		);
+
 		$instance->process( $linksUpdate );
 
 		$this->assertTrue(
@@ -215,7 +249,7 @@ class LinksUpdateConstructedTest extends \PHPUnit_Framework_TestCase {
 		);
 	}
 
-	public function testIsReadOnly_DoNothing() {
+	public function testIsNotReady_DoNothing() {
 
 		$linksUpdate = $this->getMockBuilder( '\LinksUpdate' )
 			->disableOriginalConstructor()
@@ -228,7 +262,9 @@ class LinksUpdateConstructedTest extends \PHPUnit_Framework_TestCase {
 			$this->namespaceExaminer
 		);
 
-		$instance->isReadOnly( true );
+		$instance->setLogger( $this->spyLogger );
+
+		$instance->isReady( false );
 
 		$this->assertFalse(
 			$instance->process( $linksUpdate )

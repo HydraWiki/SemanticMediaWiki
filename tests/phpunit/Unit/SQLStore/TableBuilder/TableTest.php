@@ -26,6 +26,21 @@ class TableTest extends \PHPUnit_Framework_TestCase {
 		);
 	}
 
+	public function testIsCoreTable() {
+
+		$instance = new Table( 'Foo' );
+
+		$this->assertTrue(
+			$instance->isCoreTable()
+		);
+
+		$instance = new Table( 'Bar', false );
+
+		$this->assertFalse(
+			$instance->isCoreTable()
+		);
+	}
+
 	public function testAddColumn() {
 
 		$instance = new Table( 'Foo' );
@@ -83,6 +98,31 @@ class TableTest extends \PHPUnit_Framework_TestCase {
 			$expected,
 			$instance->getAttributes()
 		);
+	}
+
+	public function testSetPrimaryKey() {
+
+		$instance = new Table( 'Foo' );
+		$instance->setPrimaryKey( 'abc,def' );
+
+		$expected = [
+			'indices' => [
+				'pri' => [ 'abc,def', 'PRIMARY KEY' ]
+			]
+		];
+
+		$this->assertEquals(
+			$expected,
+			$instance->getAttributes()
+		);
+	}
+
+	public function testAddIndexWithSpaceThrowsException() {
+
+		$instance = new Table( 'Foo' );
+
+		$this->setExpectedException( 'RuntimeException' );
+		$instance->addIndex( 'foobar, bar' );
 	}
 
 	public function testAddOption() {

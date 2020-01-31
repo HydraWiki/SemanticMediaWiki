@@ -19,14 +19,16 @@ $specialPageAliases['en'] = [
 	'Properties' => [ 'Properties' ],
 	'Concepts' => [ 'Concepts' ],
 	'SMWAdmin' => [ 'SemanticMediaWiki', 'SMWAdmin' ],
+	'PendingTaskList' => [ 'PendingTaskList' ],
 	'SearchByProperty' => [ 'SearchByProperty' ],
 	'ProcessingErrorList' => [ 'ProcessingErrorList' ],
+	'ConstraintErrorList' => [ 'ConstraintErrorList' ],
 	'PropertyLabelSimilarity' => [ 'PropertyLabelSimilarity' ],
+	'MissingRedirectAnnotations' => [ 'MissingRedirectAnnotations' ],
 	'Types' => [ 'Types' ],
 	'URIResolver' => [ 'URIResolver' ],
 	'UnusedProperties' => [ 'UnusedProperties' ],
 	'WantedProperties' => [ 'WantedProperties' ],
-	'DeferredRequestDispatcher' => [ 'DeferredRequestDispatcher' ],
 ];
 
 /** Afrikaans (Afrikaans) */
@@ -150,6 +152,7 @@ $specialPageAliases['de'] = [
 	'SearchByProperty' => [ 'Suche_mittels_Attribut' ],
 	'ProcessingErrorList' => [ 'Liste_der_Verarbeitungsfehler' ],
 	'PropertyLabelSimilarity' => [ 'Ähnliche_Attributbezeichnungen' ],
+	'MissingRedirectAnnotations' => [ 'Fehlende_Weiterleitungsannotationen' ],
 	'Types' => [ 'Datentypen' ],
 	'URIResolver' => [ 'URI-Auflöser' ],
 	'UnusedProperties' => [ 'Verwaiste_Attribute' ],

@@ -62,7 +62,7 @@ class ListLookup extends Lookup {
 		);
 
 		$limit = $requestOptions->getLimit();
-		$list = [];
+		$res = [];
 		$continueOffset = 0;
 
 		// Increase by one to look ahead
@@ -127,10 +127,16 @@ class ListLookup extends Lookup {
 		$requestOptions->setLimit( $limit );
 		$requestOptions->setOffset( $offset );
 
-		if ( isset( $parameters['search'] ) && isset( $parameters['strict'] ) ) {
-			$search = $parameters['search'];
+		if ( isset( $parameters['sort'] ) && strtolower( $parameters['sort'] ) !== 'asc' ) {
+			$requestOptions->ascending = false;
+		}
 
-			if ( $search !== '' && $search{0} !== '_' ) {
+		if ( isset( $parameters['search'] ) && $parameters['search'] === '*' ) {
+			// wildcard
+		} elseif ( isset( $parameters['search'] ) && isset( $parameters['strict'] ) ) {
+			$search = str_replace( "*", "", $parameters['search'] );
+
+			if ( $search !== '' && $search[0] !== '_' ) {
 				$search = str_replace( "_", " ", $search );
 			}
 
@@ -140,9 +146,9 @@ class ListLookup extends Lookup {
 			);
 
 		} elseif ( isset( $parameters['search'] ) ) {
-			$search = $parameters['search'];
+			$search = str_replace( "*", "", $parameters['search'] );
 
-			if ( $search !== '' && $search{0} !== '_' ) {
+			if ( $search !== '' && $search[0] !== '_' ) {
 				$search = str_replace( "_", " ", $search );
 			}
 
@@ -186,10 +192,13 @@ class ListLookup extends Lookup {
 			'smw_title'
 		];
 
-		// the query needs to do the filtering of internal properties, else LIMIT is wrong
+		// The query needs to do the filtering for internal properties, else
+		// LIMIT is wrong
 		if ( isset( $parameters['sort'] ) ) {
 			$options = $this->store->getSQLOptions( $requestOptions, 'smw_sort' );
 			$fields[] = 'smw_sort';
+		} elseif ( isset( $parameters['offset'] ) ) {
+			$options = $this->store->getSQLOptions( $requestOptions, '' );
 		}
 
 		$conditions = [

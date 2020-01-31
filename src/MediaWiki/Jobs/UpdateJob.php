@@ -9,7 +9,7 @@ use SMW\ApplicationFactory;
 use SMW\DIProperty;
 use SMW\DIWikiPage;
 use SMW\Enum;
-use SMW\EventHandler;
+use SMW\Listener\EventListener\EventHandler;
 use Title;
 
 /**
@@ -62,6 +62,7 @@ class UpdateJob extends Job {
 	 */
 	function __construct( Title $title, $params = [] ) {
 		parent::__construct( 'smw.update', $title, $params );
+		$this->title = $title;
 		$this->removeDuplicates = true;
 
 		$this->isEnabledJobQueue(
@@ -237,18 +238,14 @@ class UpdateJob extends Job {
 		);
 
 		$eventHandler = EventHandler::getInstance();
+		$eventDispatcher = $eventHandler->getEventDispatcher();
 
-		$dispatchContext = $eventHandler->newDispatchContext();
-		$dispatchContext->set( 'title', $this->getTitle() );
-
-		$eventHandler->getEventDispatcher()->dispatch(
-			'factbox.cache.delete',
-			$dispatchContext
-		);
-
-		$eventHandler->getEventDispatcher()->dispatch(
-			'cached.propertyvalues.prefetcher.reset',
-			$dispatchContext
+		$eventDispatcher->dispatch(
+			'InvalidateEntityCache',
+			[
+				'context' => 'UpdateJob',
+				'title' => $this->getTitle()
+			]
 		);
 
 		// TODO
@@ -273,7 +270,7 @@ class UpdateJob extends Job {
 
 		$parserData->setOption(
 			$parserData::OPT_FORCED_UPDATE,
-			$this->getParameter( self::FORCED_UPDATE )
+			true
 		);
 
 		$parserData->setOption(

@@ -35,13 +35,17 @@ class SchemaValidator {
 	 */
 	public function validate( Schema $schema = null ) {
 
-		if ( $schema === null || !is_string( $schema->getValidationSchema() ) ) {
+		if ( $schema === null || !is_string( $schema->info( Schema::SCHEMA_VALIDATION_FILE ) ) ) {
 			return [];
+		}
+
+		if ( !is_readable( $schema->info( Schema::SCHEMA_VALIDATION_FILE ) ) ) {
+			return [ [ 'smw-schema-error-validation-file-inaccessible', $schema->info( Schema::SCHEMA_VALIDATION_FILE ) ] ];
 		}
 
 		$this->validator->validate(
 			$schema,
-			$schema->getValidationSchema()
+			$schema->info( Schema::SCHEMA_VALIDATION_FILE )
 		);
 
 		if ( $this->validator->isValid() ) {

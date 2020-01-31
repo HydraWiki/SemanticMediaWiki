@@ -148,7 +148,7 @@ class MwCollaboratorFactoryTest extends \PHPUnit_Framework_TestCase {
 
 		$this->assertInstanceOf(
 			'\SMW\MediaWiki\Connection\LoadBalancerConnectionProvider',
-			$instance->newLoadBalancerConnectionProvider( DB_SLAVE )
+			$instance->newLoadBalancerConnectionProvider( DB_REPLICA )
 		);
 	}
 
@@ -200,7 +200,7 @@ class MwCollaboratorFactoryTest extends \PHPUnit_Framework_TestCase {
 		);
 	}
 
-	public function testCanConstructEditInfoProvider() {
+	public function testCanConstructEditInfo() {
 
 		$wikiPage = $this->getMockBuilder( '\WikiPage' )
 			->disableOriginalConstructor()
@@ -215,8 +215,8 @@ class MwCollaboratorFactoryTest extends \PHPUnit_Framework_TestCase {
 		);
 
 		$this->assertInstanceOf(
-			'\SMW\MediaWiki\EditInfoProvider',
-			$instance->newEditInfoProvider( $wikiPage, $revision )
+			'\SMW\MediaWiki\EditInfo',
+			$instance->newEditInfo( $wikiPage, $revision )
 		);
 	}
 

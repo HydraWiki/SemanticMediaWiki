@@ -89,7 +89,7 @@ class TaskHandlerFactoryTest extends \PHPUnit_Framework_TestCase {
 
 		$provider[] = [
 			'newTableSchemaTaskHandler',
-			'\SMW\MediaWiki\Specials\Admin\TableSchemaTaskHandler'
+			'\SMW\MediaWiki\Specials\Admin\Maintenance\TableSchemaTaskHandler'
 		];
 
 		$provider[] = [
@@ -99,47 +99,62 @@ class TaskHandlerFactoryTest extends \PHPUnit_Framework_TestCase {
 
 		$provider[] = [
 			'newConfigurationListTaskHandler',
-			'\SMW\MediaWiki\Specials\Admin\ConfigurationListTaskHandler'
+			'\SMW\MediaWiki\Specials\Admin\Supplement\ConfigurationListTaskHandler'
 		];
 
 		$provider[] = [
 			'newOperationalStatisticsListTaskHandler',
-			'\SMW\MediaWiki\Specials\Admin\OperationalStatisticsListTaskHandler'
+			'\SMW\MediaWiki\Specials\Admin\Supplement\OperationalStatisticsListTaskHandler'
 		];
 
 		$provider[] = [
 			'newEntityLookupTaskHandler',
-			'\SMW\MediaWiki\Specials\Admin\EntityLookupTaskHandler'
+			'\SMW\MediaWiki\Specials\Admin\Supplement\EntityLookupTaskHandler'
 		];
 
 		$provider[] = [
 			'newDataRefreshJobTaskHandler',
-			'\SMW\MediaWiki\Specials\Admin\DataRefreshJobTaskHandler'
+			'\SMW\MediaWiki\Specials\Admin\Maintenance\DataRefreshJobTaskHandler'
 		];
 
 		$provider[] = [
 			'newDisposeJobTaskHandler',
-			'\SMW\MediaWiki\Specials\Admin\DisposeJobTaskHandler'
+			'\SMW\MediaWiki\Specials\Admin\Maintenance\DisposeJobTaskHandler'
 		];
 
 		$provider[] = [
 			'newPropertyStatsRebuildJobTaskHandler',
-			'\SMW\MediaWiki\Specials\Admin\PropertyStatsRebuildJobTaskHandler'
+			'\SMW\MediaWiki\Specials\Admin\Maintenance\PropertyStatsRebuildJobTaskHandler'
 		];
 
 		$provider[] = [
 			'newFulltextSearchTableRebuildJobTaskHandler',
-			'\SMW\MediaWiki\Specials\Admin\FulltextSearchTableRebuildJobTaskHandler'
+			'\SMW\MediaWiki\Specials\Admin\Maintenance\FulltextSearchTableRebuildJobTaskHandler'
 		];
 
 		$provider[] = [
 			'newDeprecationNoticeTaskHandler',
-			'\SMW\MediaWiki\Specials\Admin\DeprecationNoticeTaskHandler'
+			'\SMW\MediaWiki\Specials\Admin\Alerts\DeprecationNoticeTaskHandler'
+		];
+
+		$provider[] = [
+			'newAlertsTaskHandler',
+			'\SMW\MediaWiki\Specials\Admin\AlertsTaskHandler'
 		];
 
 		$provider[] = [
 			'newDuplicateLookupTaskHandler',
-			'\SMW\MediaWiki\Specials\Admin\DuplicateLookupTaskHandler'
+			'\SMW\MediaWiki\Specials\Admin\Supplement\DuplicateLookupTaskHandler'
+		];
+
+		$provider[] = [
+			'newMaintenanceTaskHandler',
+			'\SMW\MediaWiki\Specials\Admin\MaintenanceTaskHandler'
+		];
+
+		$provider[] = [
+			'newSupplementTaskHandler',
+			'\SMW\MediaWiki\Specials\Admin\SupplementTaskHandler'
 		];
 
 		return $provider;

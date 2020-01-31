@@ -58,7 +58,9 @@ class PropertyTableDefinitionBuilder {
 		$this->addTableDefinitionForDiTypes( $diTypes );
 
 		$this->addTableDefinitionForFixedProperties(
-			$specialProperties
+			$specialProperties,
+			[],
+			TableDefinition::TYPE_CORE
 		);
 
 		$customFixedProperties = [];
@@ -69,7 +71,8 @@ class PropertyTableDefinitionBuilder {
 
 		$this->addTableDefinitionForFixedProperties(
 			$customFixedProperties,
-			$fixedPropertyTablePrefix
+			$fixedPropertyTablePrefix,
+			TableDefinition::TYPE_CUSTOM
 		);
 
 		$this->addRedirectTableDefinition();
@@ -138,7 +141,7 @@ class PropertyTableDefinitionBuilder {
 	 *
 	 * @return string
 	 */
-	public function createTableNameFrom( $tableName ) {
+	public static function makeTableName( $tableName ) {
 		return self::PROPERTY_TABLE_PREFIX . strtolower( $tableName );
 	}
 
@@ -163,8 +166,9 @@ class PropertyTableDefinitionBuilder {
 	 * @param $tableName
 	 * @param $fixedProperty
 	 */
-	protected function addPropertyTable( $diType, $tableName, $fixedProperty = false ) {
+	protected function addPropertyTable( $diType, $tableName, $fixedProperty = false, $tableType = '' ) {
 		$this->propertyTables[$tableName] = $this->newTableDefinition( $diType, $tableName, $fixedProperty );
+		$this->propertyTables[$tableName]->setTableType( $tableType );
 	}
 
 	/**
@@ -172,11 +176,11 @@ class PropertyTableDefinitionBuilder {
 	 */
 	private function addTableDefinitionForDiTypes( array $diTypes ) {
 		foreach( $diTypes as $tableDIType => $tableName ) {
-			$this->addPropertyTable( $tableDIType, $tableName );
+			$this->addPropertyTable( $tableDIType, $tableName, false, TableDefinition::TYPE_CORE );
 		}
 	}
 
-	private function addTableDefinitionForFixedProperties( array $properties, array $fixedPropertyTablePrefix = [] ) {
+	private function addTableDefinitionForFixedProperties( array $properties, array $fixedPropertyTablePrefix = [], $tableType = false ) {
 		foreach( $properties as $propertyKey => $propertyTableSuffix ) {
 
 			$tablePrefix = isset( $fixedPropertyTablePrefix[$propertyKey] ) ? $fixedPropertyTablePrefix[$propertyKey] : self::PROPERTY_TABLE_PREFIX;
@@ -185,18 +189,20 @@ class PropertyTableDefinitionBuilder {
 			// array with property key => tableSuffix
 			$propertyKey = is_int( $propertyKey ) ? $propertyTableSuffix : $propertyKey;
 
-			$this->addPropertyTable(
-				DataTypeRegistry::getInstance()->getDataItemByType( PropertyRegistry::getInstance()->getPropertyValueTypeById( $propertyKey ) ),
-				$tablePrefix . strtolower( $propertyTableSuffix ),
-				$propertyKey
+			$diType = DataTypeRegistry::getInstance()->getDataItemByType(
+				PropertyRegistry::getInstance()->getPropertyValueTypeById( $propertyKey )
 			);
+
+			$tableName = $tablePrefix . strtolower( $propertyTableSuffix );
+
+			$this->addPropertyTable( $diType, $tableName, $propertyKey, $tableType );
 		}
 	}
 
 	private function addRedirectTableDefinition() {
 		// Redirect table uses another subject scheme for historic reasons
 		// TODO This should be changed if possible
-		$redirectTableName = $this->createTableNameFrom( '_REDI' );
+		$redirectTableName = $this->makeTableName( '_REDI' );
 
 		if ( isset( $this->propertyTables[$redirectTableName]) ) {
 			$this->propertyTables[$redirectTableName]->setUsesIdSubject( false );
@@ -212,7 +218,7 @@ class PropertyTableDefinitionBuilder {
 	private function addTableDefinitionForUserDefinedFixedProperties( array $fixedProperties ) {
 
 		$this->propertyTypeFinder->setTypeTableName(
-			$this->createTableNameFrom( '_TYPE' )
+			$this->makeTableName( '_TYPE' )
 		);
 
 		foreach( $fixedProperties as $propertyKey ) {
@@ -222,11 +228,13 @@ class PropertyTableDefinitionBuilder {
 			$propertyKey = str_replace( ' ', '_', ucfirst( $propertyKey ) );
 			$property = new DIProperty( $propertyKey );
 
-			$this->addPropertyTable(
-				DataTypeRegistry::getInstance()->getDataItemByType( $this->propertyTypeFinder->findTypeID( $property ) ),
-				$this->createHashedTableNameFrom( $propertyKey ),
-				$propertyKey
+			$diType = DataTypeRegistry::getInstance()->getDataItemByType(
+				$this->propertyTypeFinder->findTypeID( $property )
 			);
+
+			$tableName = $this->createHashedTableNameFrom( $propertyKey );
+
+			$this->addPropertyTable( $diType, $tableName, $propertyKey, TableDefinition::TYPE_CORE );
 		}
 	}
 

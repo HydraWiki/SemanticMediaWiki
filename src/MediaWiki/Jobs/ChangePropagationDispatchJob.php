@@ -6,7 +6,7 @@ use SMW\MediaWiki\Job;
 use SMW\ApplicationFactory;
 use SMW\DIProperty;
 use SMW\DIWikiPage;
-use SMW\SQLStore\ChangePropagationEntityFinder;
+use SMW\SQLStore\Lookup\ChangePropagationEntityLookup;
 use SMWExporter as Exporter;
 use Title;
 
@@ -74,7 +74,7 @@ class ChangePropagationDispatchJob extends Job {
 	public static function planAsJob( DIWikiPage $subject, $params = [] ) {
 
 		Exporter::getInstance()->resetCacheBy( $subject );
-		ApplicationFactory::getInstance()->getPropertySpecificationLookup()->resetCacheBy(
+		ApplicationFactory::getInstance()->getPropertySpecificationLookup()->invalidateCache(
 			$subject
 		);
 
@@ -115,14 +115,21 @@ class ChangePropagationDispatchJob extends Job {
 	public static function hasPendingJobs( DIWikiPage $subject ) {
 
 		$applicationFactory = ApplicationFactory::getInstance();
+		$jobQueue = $applicationFactory->getJobQueue();
 
-		$jobType = 'smw.changePropagationUpdate';
+		$jobType = 'smw.changePropagationDispatch';
+
+		if ( $jobQueue->hasPendingJob( $jobType ) ) {
+			return true;
+		}
 
 		if ( $subject->getNamespace() === NS_CATEGORY ) {
 			$jobType = 'smw.changePropagationClassUpdate';
+		} else {
+			$jobType = 'smw.changePropagationUpdate';
 		}
 
-		if ( $applicationFactory->getJobQueue()->hasPendingJob( $jobType ) ) {
+		if ( $jobQueue->hasPendingJob( $jobType ) ) {
 			return true;
 		}
 
@@ -148,14 +155,22 @@ class ChangePropagationDispatchJob extends Job {
 	public static function getPendingJobsCount( DIWikiPage $subject ) {
 
 		$applicationFactory = ApplicationFactory::getInstance();
+		$jobQueue = $applicationFactory->getJobQueue();
 
-		$jobType = 'smw.changePropagationUpdate';
+		$jobType = 'smw.changePropagationDispatch';
+		$count = 0;
+
+		if ( $jobQueue->hasPendingJob( $jobType ) ) {
+			$count = $jobQueue->getQueueSize( $jobType );
+		}
 
 		if ( $subject->getNamespace() === NS_CATEGORY ) {
 			$jobType = 'smw.changePropagationClassUpdate';
+		} else {
+			$jobType = 'smw.changePropagationUpdate';
 		}
 
-		$count = $applicationFactory->getJobQueue()->getQueueSize( $jobType );
+		$count += $jobQueue->getQueueSize( $jobType );
 
 		// Fallback for when JobQueue::getQueueSize doesn't yet contain the
 		// updated stats
@@ -184,6 +199,10 @@ class ChangePropagationDispatchJob extends Job {
 			return $this->dispatchFromFile( $subject, $this->getParameter( 'dataFile' ) );
 		}
 
+		if ( $this->hasParameter( 'schema_change_propagation' ) ) {
+			return $this->dispatchFromSchema( $subject, $this->getParameter( 'property_key' ) );
+		}
+
 		$this->findAndDispatch();
 
 		return true;
@@ -206,12 +225,12 @@ class ChangePropagationDispatchJob extends Job {
 			'ChangePropagationDispatchJob on ' . $subject->getHash()
 		);
 
-		$changePropagationEntityFinder = new ChangePropagationEntityFinder(
+		$changePropagationEntityLookup = new ChangePropagationEntityLookup(
 			$applicationFactory->getStore(),
 			$iteratorFactory
 		);
 
-		$changePropagationEntityFinder->isTypePropagation(
+		$changePropagationEntityLookup->isTypePropagation(
 			$this->getParameter( 'isTypePropagation' )
 		);
 
@@ -221,7 +240,7 @@ class ChangePropagationDispatchJob extends Job {
 			$entity = $subject;
 		}
 
-		$appendIterator = $changePropagationEntityFinder->findAll(
+		$appendIterator = $changePropagationEntityLookup->findAll(
 			$entity
 		);
 
@@ -345,6 +364,31 @@ class ChangePropagationDispatchJob extends Job {
 		return true;
 	}
 
+	private function dispatchFromSchema( $subject, $property_key ) {
+
+		$store = ApplicationFactory::getInstance()->getStore();
+
+		// Find all properties that point to the schema and hereby require
+		// an update (!! using the inverse relationship)
+		$dataItems = $store->getPropertyValues(
+			$subject,
+			new DIProperty( $property_key, true )
+		);
+
+		// Scheduling the actual dispatch for those properties connected to
+		// the schema change
+		foreach ( $dataItems as $dataItem ) {
+
+			$changePropagationDispatchJob = new ChangePropagationDispatchJob(
+				$dataItem->getTitle()
+			);
+
+			$changePropagationDispatchJob->insert();
+		}
+
+		return true;
+	}
+
 	private function scheduleChangePropagationUpdateJobFromList( $dataItems ) {
 
 		foreach ( $dataItems as $dataItem ) {
@@ -399,7 +443,7 @@ class ChangePropagationDispatchJob extends Job {
 			60 * 60 * 24
 		);
 
-		$applicationFactory->getPropertySpecificationLookup()->resetCacheBy( $subject );
+		$applicationFactory->getPropertySpecificationLookup()->invalidateCache( $subject );
 
 		// Make sure the cache is reset in case runJobs.php --wait is used to avoid
 		// reusing outdated type assignments

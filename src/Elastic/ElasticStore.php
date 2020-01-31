@@ -8,7 +8,10 @@ use SMW\DIWikiPage;
 use SMW\SemanticData;
 use SMW\SQLStore\SQLStore;
 use SMWQuery as Query;
+use SMW\Options;
 use Title;
+use SMW\SetupFile;
+use SMW\Utils\CliMsgFormatter;
 
 /**
  * @private
@@ -30,6 +33,12 @@ use Title;
  * @author mwjames
  */
 class ElasticStore extends SQLStore {
+
+	/**
+	 * Setup key to verify that the `rebuildElasticIndex.php` has been executed.
+	 */
+	const REBUILD_INDEX_RUN_COMPLETE = 'elastic.rebuild_index_run_complete';
+	const REBUILD_INDEX_RUN_INCOMPLETE = 'smw-elastic-rebuildelasticindex-run-incomplete';
 
 	/**
 	 * @var ElasticFactory
@@ -55,6 +64,15 @@ class ElasticStore extends SQLStore {
 	}
 
 	/**
+	 * @since 3.1
+	 *
+	 * @param ElasticFactory $elasticFactory
+	 */
+	public function setElasticFactory( ElasticFactory $elasticFactory ) {
+		$this->elasticFactory = $elasticFactory;
+	}
+
+	/**
 	 * @see Store::service
 	 *
 	 * {@inheritDoc}
@@ -70,6 +88,12 @@ class ElasticStore extends SQLStore {
 			// $this->servicesContainer->add( 'ProximityPropertyValueLookup', function() {
 			//	return $this->elasticFactory->newProximityPropertyValueLookup( $this );
 			// } );
+			//
+			$this->servicesContainer->add( 'IndicatorProvider', function() {
+				return $this->elasticFactory->newIndicatorProvider(
+					$this
+				);
+			} );
 		}
 
 		return $this->servicesContainer->get( $service, ...$args );
@@ -82,7 +106,7 @@ class ElasticStore extends SQLStore {
 	 * @param Title $title
 	 */
 	public function deleteSubject( Title $title ) {
-		parent::deleteSubject( $title );
+		$status = parent::deleteSubject( $title );
 
 		if ( $this->indexer === null ) {
 			$this->indexer = $this->elasticFactory->newIndexer( $this, $this->messageReporter );
@@ -91,13 +115,13 @@ class ElasticStore extends SQLStore {
 		$this->indexer->setOrigin( 'ElasticStore::DeleteSubject' );
 		$idList = [];
 
-		if ( isset( $this->extensionData['delete.list'] ) ) {
-			$idList = $this->extensionData['delete.list'];
+		if ( $status->has( 'delete_list' ) ) {
+			$idList = $status->get( 'delete_list' );
 		}
 
 		$this->indexer->delete( $idList, $title->getNamespace() === SMW_NS_CONCEPT );
 
-		unset( $this->extensionData['delete.list'] );
+		return $status;
 	}
 
 	/**
@@ -110,7 +134,7 @@ class ElasticStore extends SQLStore {
 	 * @param integer $redirid
 	 */
 	public function changeTitle( Title $oldTitle, Title $newTitle, $pageId, $redirectId = 0 ) {
-		parent::changeTitle( $oldTitle, $newTitle, $pageId, $redirectId );
+		$status = parent::changeTitle( $oldTitle, $newTitle, $pageId, $redirectId );
 
 		$id = $this->getObjectIds()->getSMWPageID(
 			$oldTitle->getDBkey(),
@@ -127,8 +151,8 @@ class ElasticStore extends SQLStore {
 		$this->indexer->setOrigin( 'ElasticStore::ChangeTitle' );
 		$idList = [ $id ];
 
-		if ( isset( $this->extensionData['delete.list'] ) ) {
-			$idList = array_merge( $idList, $this->extensionData['delete.list'] );
+		if ( $status->has( 'delete_list' ) ) {
+			$idList = array_merge( $idList, $status->get( 'delete_list' ) );
 		}
 
 		$this->indexer->delete( $idList );
@@ -151,7 +175,7 @@ class ElasticStore extends SQLStore {
 			$this->indexer->create( $dataItem );
 		}
 
-		unset( $this->extensionData['delete.list'] );
+		return $status;
 	}
 
 	/**
@@ -173,7 +197,7 @@ class ElasticStore extends SQLStore {
 			$this->queryEngine = $this->elasticFactory->newQueryEngine( $this );
 		}
 
-		if ( $connection->getConfig()->dotGet( 'query.fallback.no.connection' ) && !$connection->ping() ) {
+		if ( $connection->getConfig()->dotGet( 'query.fallback.no_connection' ) && !$connection->ping() ) {
 			return parent::getQueryResult( $query );
 		}
 
@@ -208,7 +232,7 @@ class ElasticStore extends SQLStore {
 	 * @param SemanticData $semanticData
 	 */
 	protected function doDataUpdate( SemanticData $semanticData ) {
-		parent::doDataUpdate( $semanticData );
+		$status = parent::doDataUpdate( $semanticData );
 
 		$time = -microtime( true );
 		$config = $this->getConnection( 'elastic' )->getConfig();
@@ -220,27 +244,27 @@ class ElasticStore extends SQLStore {
 		$this->indexer->setOrigin( 'ElasticStore::DoDataUpdate' );
 		$subject = $semanticData->getSubject();
 
-		if ( isset( $this->extensionData['delete.list'] ) ) {
-			$this->indexer->delete( $this->extensionData['delete.list'] );
+		if ( $status->has( 'delete_list' ) ) {
+			$this->indexer->delete( $status->get( 'delete_list' ) );
 		}
 
-		if ( !isset( $this->extensionData['change.diff'] ) ) {
+		if ( !$status->has( 'change_diff' ) ) {
 			throw new RuntimeException( "Unable to replicate, missing a `change.diff` object!" );
 		}
 
 		$text = '';
+		$changeDiff = $status->get( 'change_diff' );
+		$rev_id = $semanticData->getExtensionData( 'revision_id' );
+		$changeDiff->setAssociatedRev( $rev_id );
 
-		if ( $config->dotGet( 'indexer.raw.text', false ) && ( $revID = $semanticData->getExtensionData( 'revision_id' ) ) !== null ) {
-			$text = $this->indexer->fetchNativeData( $revID );
+		if ( $config->dotGet( 'indexer.raw.text', false ) && $rev_id !== null ) {
+			$text = $this->indexer->fetchNativeData( $rev_id );
 		}
 
 		$this->indexer->safeReplicate(
-			$this->extensionData['change.diff'],
+			$changeDiff,
 			$text
 		);
-
-		unset( $this->extensionData['delete.list'] );
-		unset( $this->extensionData['change.diff'] );
 
 		$this->logger->info(
 			[
@@ -255,9 +279,11 @@ class ElasticStore extends SQLStore {
 			]
 		);
 
-		if ( $subject->getNamespace() === NS_FILE && $config->dotGet( 'indexer.experimental.file.ingest', false ) && $semanticData->getOption( 'is.fileupload' ) ) {
-			$this->indexer->getFileIndexer()->planIngestJob( $subject->getTitle() );
+		if ( $config->dotGet( 'indexer.experimental.file.ingest', false ) && $semanticData->getOption( 'is.fileupload' ) ) {
+			$this->ingestFile( $subject->getTitle() );
  		}
+
+		return $status;
 	}
 
 	/**
@@ -266,23 +292,76 @@ class ElasticStore extends SQLStore {
 	 *
 	 * {@inheritDoc}
 	 */
-	public function setup( $verbose = true ) {
+	public function setup( $options = true ) {
+
+		$cliMsgFormatter = new CliMsgFormatter();
 
 		if ( $this->indexer === null ) {
 			$this->indexer = $this->elasticFactory->newIndexer( $this, $this->messageReporter );
 		}
 
-		$this->indexer->setup();
+		$indices = $this->indexer->setup();
+		$client = $this->getConnection( 'elastic' );
+		$version = $client->getVersion();
 
-		if ( $verbose ) {
-			$this->messageReporter->reportMessage( "\n" );
-			$this->messageReporter->reportMessage( 'Selected query engine: "SMWElasticStore"' );
-			$this->messageReporter->reportMessage( "\n" );
-			$this->messageReporter->reportMessage( "\nSetting up indices ...\n" );
+		if ( $options instanceof Options && $options->get( 'verbose' ) ) {
+
+			if (
+				$options->has( SMW_EXTENSION_SCHEMA_UPDATER ) &&
+				$options->get( SMW_EXTENSION_SCHEMA_UPDATER ) ) {
+				$this->messageReporter->reportMessage( $cliMsgFormatter->section( 'Sematic MediaWiki', 3, '=' ) );
+				$this->messageReporter->reportMessage( "\n" . $cliMsgFormatter->head() );
+
+				// Only output the head once hence for any succeeding processing
+				// remove the marker.
+				$options->set( SMW_EXTENSION_SCHEMA_UPDATER, false );
+			}
+
+			$setupFile = new SetupFile();
+
+			// Remove REBUILD_INDEX_RUN_COMPLETE with 3.3+
+
+			if ( $setupFile->get( ElasticStore::REBUILD_INDEX_RUN_COMPLETE ) !== null ) {
+				$setupFile->remove( ElasticStore::REBUILD_INDEX_RUN_COMPLETE );
+				$setupFile->set( [ 'elasticsearch' => [ 'latest_version' => $version ] ] );
+			} elseif ( $setupFile->get( 'elasticsearch' ) === null ) {
+				$setupFile->set( [ 'elasticsearch' => [ 'latest_version' => $version ] ] );
+				$setupFile->addIncompleteTask( self::REBUILD_INDEX_RUN_INCOMPLETE );
+			} else {
+				$data = $setupFile->get( 'elasticsearch' );
+
+				if ( $data['latest_version'] !== $version ) {
+					$setupFile->set(
+						[
+							'elasticsearch' => [
+								'latest_version'   => $version,
+								'previous_version' => $data['latest_version']
+							]
+						]
+					);
+				}
+			}
+
+			$this->messageReporter->reportMessage(
+				$cliMsgFormatter->section( 'Indices setup' )
+			);
+
+			$this->messageReporter->reportMessage(
+				"\n" . $cliMsgFormatter->twoCols( "Query engine:", 'SMWElasticStore' )
+			);
+
+			$this->messageReporter->reportMessage( "\nChecking indices ...\n" );
+
+			foreach ( $indices as $index ) {
+				$this->messageReporter->reportMessage(
+					$cliMsgFormatter->twoCols( "... $index ...", CliMsgFormatter::OK, 3 )
+				);
+			}
+
 			$this->messageReporter->reportMessage( "   ... done.\n" );
 		}
 
-		parent::setup( $verbose );
+		parent::setup( $options );
 	}
 
 	/**
@@ -293,17 +372,44 @@ class ElasticStore extends SQLStore {
 	 */
 	public function drop( $verbose = true ) {
 
+		$cliMsgFormatter = new CliMsgFormatter();
+
 		if ( $this->indexer === null ) {
 			$this->indexer = $this->elasticFactory->newIndexer( $this, $this->messageReporter );
 		}
 
-		$this->indexer->drop();
+		$indices = $this->indexer->drop();
+
+		$setupFile = new SetupFile();
+
+		$setupFile->remove(
+			ElasticStore::REBUILD_INDEX_RUN_COMPLETE
+		);
+
+		$setupFile->removeIncompleteTask(
+			ElasticStore::REBUILD_INDEX_RUN_INCOMPLETE
+		);
+
+		$setupFile->remove( 'elasticsearch' );
 
 		if ( $verbose ) {
-			$this->messageReporter->reportMessage( "\n" );
-			$this->messageReporter->reportMessage( 'Selected query engine: "SMWElasticStore"' );
-			$this->messageReporter->reportMessage( "\n" );
-			$this->messageReporter->reportMessage( "\nDropping indices ...\n" );
+
+			$this->messageReporter->reportMessage(
+				$cliMsgFormatter->section( 'Indices removal' )
+			);
+
+			$this->messageReporter->reportMessage(
+				"\n" . $cliMsgFormatter->twoCols( "Query engine:", 'SMWElasticStore' )
+			);
+
+			$this->messageReporter->reportMessage( "\nDropped index ...\n" );
+
+			foreach ( $indices as $index ) {
+				$this->messageReporter->reportMessage(
+					$cliMsgFormatter->twoCols( "... $index ...", CliMsgFormatter::OK, 3 )
+				);
+			}
+
 			$this->messageReporter->reportMessage( "   ... done.\n" );
 		}
 
@@ -348,6 +454,15 @@ class ElasticStore extends SQLStore {
 		return [
 			'SMWElasticStore' => $database->getInfo() + [ 'es' => $client->getVersion() ]
 		];
+	}
+
+	private function ingestFile( $title, array $params = [] ) {
+
+		if ( $title->getNamespace() !== NS_FILE ) {
+			return;
+		}
+
+		$this->indexer->getFileIndexer()->pushIngestJob( $title, $params );
 	}
 
 }

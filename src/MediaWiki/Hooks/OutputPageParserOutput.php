@@ -5,7 +5,9 @@ namespace SMW\MediaWiki\Hooks;
 use OutputPage;
 use ParserOutput;
 use SMW\ApplicationFactory;
-use SMW\Query\QueryRefFinder;
+use SMW\MediaWiki\IndicatorRegistry;
+use SMW\NamespaceExaminer;
+use SMW\MediaWiki\HookListener;
 use Title;
 
 /**
@@ -25,61 +27,79 @@ use Title;
  *
  * @author mwjames
  */
-class OutputPageParserOutput {
+class OutputPageParserOutput implements HookListener {
 
 	/**
-	 * @var OutputPage
+	 * @var NamespaceExaminer
 	 */
-	protected $outputPage = null;
+	private $namespaceExaminer;
 
 	/**
-	 * @var ParserOutput
+	 * @var IndicatorRegistry
 	 */
-	protected $parserOutput = null;
+	private $indicatorRegistry;
 
 	/**
-	 * @since  1.9
+	 * @since 1.9
 	 *
-	 * @param OutputPage $outputPage
-	 * @param ParserOutput $parserOutput
+	 * @param NamespaceExaminer $namespaceExaminer
 	 */
-	public function __construct( OutputPage &$outputPage, ParserOutput $parserOutput ) {
-		$this->outputPage = $outputPage;
-		$this->parserOutput = $parserOutput;
+	public function __construct( NamespaceExaminer $namespaceExaminer ) {
+		$this->namespaceExaminer = $namespaceExaminer;
 	}
 
 	/**
-	 * @see FunctionHook::process
+	 * @since 3.1
 	 *
-	 * @since 1.9
-	 *
-	 * @return true
+	 * @param IndicatorRegistry $indicatorRegistry
 	 */
-	public function process() {
+	public function setIndicatorRegistry( IndicatorRegistry $indicatorRegistry ) {
+		$this->indicatorRegistry = $indicatorRegistry;
+	}
 
-		$title = $this->outputPage->getTitle();
+	/**
+	 * @since 1.9
+	 */
+	public function process( OutputPage &$outputPage, ParserOutput $parserOutput ) {
 
-		if ( $title->isSpecialPage() ||
-			$title->isRedirect() ||
-			!$this->isSemanticEnabledNamespace( $title ) ) {
+		$title = $outputPage->getTitle();
+
+		if ( $title->isSpecialPage() || $title->isRedirect() ) {
 			return true;
 		}
 
-		$request = $this->outputPage->getContext()->getRequest();
+		if ( !$this->namespaceExaminer->isSemanticEnabled( $title->getNamespace() ) ) {
+			return true;
+		}
 
-		$this->factbox( $request );
-		$this->postProc( $title, $request );
+		$context = $outputPage->getContext();
+		$request = $context->getRequest();
+
+		$options = [
+			'action' => $request->getVal( 'action' ),
+			'diff' => $request->getVal( 'diff' ),
+			'isRTL' => $context->getLanguage()->isRTL()
+		];
+
+		if ( $this->indicatorRegistry !== null && $this->indicatorRegistry->hasIndicator( $title, $options ) ) {
+			$this->indicatorRegistry->attachIndicators( $outputPage );
+		}
+
+		$this->addFactbox( $outputPage, $parserOutput );
+		$this->addPostProc( $title, $outputPage, $parserOutput );
 	}
 
-	private function postProc( $title, $request) {
+	private function addPostProc( Title $title, OutputPage $outputPage, ParserOutput $parserOutput ) {
 
-		if ( in_array( $request->getVal( 'action' ), [ 'delete', 'purge', 'protect', 'unprotect', 'history', 'edit' ] ) ) {
+		$request = $outputPage->getContext()->getRequest();
+
+		if ( in_array( $request->getVal( 'action' ), [ 'delete', 'purge', 'protect', 'unprotect', 'history', 'edit', 'formedit' ] ) ) {
 			return '';
 		}
 
 		$applicationFactory = ApplicationFactory::getInstance();
 
-		$postProcHandler = $applicationFactory->create( 'PostProcHandler', $this->parserOutput );
+		$postProcHandler = $applicationFactory->newPostProcHandler( $parserOutput );
 
 		$html = $postProcHandler->getHtml(
 			$title,
@@ -87,14 +107,16 @@ class OutputPageParserOutput {
 		);
 
 		if ( $html !== '' ) {
-			$this->outputPage->addModules( $postProcHandler->getModules() );
-			$this->outputPage->addHtml( $html );
+			$outputPage->addModules( $postProcHandler->getModules() );
+			$outputPage->addHtml( $html );
 		}
 	}
 
-	protected function factbox( $request ) {
+	protected function addFactbox( OutputPage $outputPage, ParserOutput $parserOutput ) {
 
-		if ( isset( $this->outputPage->mSMWFactboxText ) && $request->getCheck( 'wpPreview' ) ) {
+		$request = $outputPage->getContext()->getRequest();
+
+		if ( isset( $outputPage->mSMWFactboxText ) && $request->getCheck( 'wpPreview' ) ) {
 			return '';
 		}
 
@@ -102,24 +124,23 @@ class OutputPageParserOutput {
 
 		$cachedFactbox = $applicationFactory->singleton( 'FactboxFactory' )->newCachedFactbox();
 
-		$cachedFactbox->prepareFactboxContent(
-			$this->outputPage,
-			$this->outputPage->getLanguage(),
-			$this->getParserOutput()
+		$cachedFactbox->prepare(
+			$outputPage,
+			$this->getParserOutput( $outputPage, $parserOutput )
 		);
 
 		return true;
 	}
 
-	protected function getParserOutput() {
+	protected function getParserOutput( OutputPage $outputPage, ParserOutput $parserOutput ) {
 
-		if ( $this->outputPage->getContext()->getRequest()->getInt( 'oldid' ) ) {
+		if ( $outputPage->getContext()->getRequest()->getInt( 'oldid' ) ) {
 
-			$text = $this->parserOutput->getText();
+			$text = $parserOutput->getText();
 
 			$parserData = ApplicationFactory::getInstance()->newParserData(
-				$this->outputPage->getTitle(),
-				$this->parserOutput
+				$outputPage->getTitle(),
+				$parserOutput
 			);
 
 			$inTextAnnotationParser = ApplicationFactory::getInstance()->newInTextAnnotationParser( $parserData );
@@ -128,11 +149,7 @@ class OutputPageParserOutput {
 			return $parserData->getOutput();
 		}
 
-		return $this->parserOutput;
-	}
-
-	private function isSemanticEnabledNamespace( Title $title ) {
-		return ApplicationFactory::getInstance()->getNamespaceExaminer()->isSemanticEnabled( $title->getNamespace() );
+		return $parserOutput;
 	}
 
 }

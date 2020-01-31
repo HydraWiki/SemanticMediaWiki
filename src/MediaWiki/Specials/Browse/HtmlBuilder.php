@@ -140,10 +140,18 @@ class HtmlBuilder {
 	 * @return string
 	 */
 	public function legacy() {
+
+		$subject = [
+			'dbkey' => $this->subject->getDBKey(),
+			'ns' => $this->subject->getNamespace(),
+			'iw' => $this->subject->getInterwiki(),
+			'subobject' => $this->subject->getSubobjectName(),
+		];
+
 		return Html::rawElement(
 			'div',
 			[
-				'data-subject' => $this->subject->getHash(),
+				'data-subject' => json_encode( $subject, JSON_UNESCAPED_UNICODE ),
 				'data-options' => json_encode( $this->options )
 			],
 			$this->buildHTML()
@@ -156,11 +164,19 @@ class HtmlBuilder {
 	 * @return string
 	 */
 	public function placeholder() {
+
+		$subject = [
+			'dbkey' => $this->subject->getDBKey(),
+			'ns' => $this->subject->getNamespace(),
+			'iw' => $this->subject->getInterwiki(),
+			'subobject' => $this->subject->getSubobjectName(),
+		];
+
 		return Html::rawElement(
 			'div',
 			[
 				'class' => 'smwb-container',
-				'data-subject' => $this->subject->getHash(),
+				'data-subject' => json_encode( $subject, JSON_UNESCAPED_UNICODE ),
 				'data-options' => json_encode( $this->options )
 			],
 			Html::rawElement(
@@ -368,9 +384,11 @@ class HtmlBuilder {
 		$diProperties = $semanticData->getProperties();
 
 		$showGroup = $this->getOption( 'showGroup' ) && $this->getOption( 'group' ) !== 'hide';
+		$applicationFactory = ApplicationFactory::getInstance();
 
 		$groupFormatter = new GroupFormatter(
-			ApplicationFactory::getInstance()->getPropertySpecificationLookup()
+			$applicationFactory->getPropertySpecificationLookup(),
+			$applicationFactory->singleton( 'SchemaFactory' )->newSchemaFinder( $this->store )
 		);
 
 		$groupFormatter->showGroup( $showGroup );
@@ -492,6 +510,12 @@ class HtmlBuilder {
 		);
 
 		$dataValueFactory = DataValueFactory::getInstance();
+
+		// Sort by label instead of the key which may start with `_` or `__`
+		// and thereby distorts the lexicographical order
+		usort ( $properties, function( $a, $b ) {
+			return strnatcmp( $a->getLabel(), $b->getLabel() );
+		} );
 
 		foreach ( $properties as $diProperty ) {
 

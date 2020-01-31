@@ -3,6 +3,7 @@
 namespace SMW\Utils;
 
 use RuntimeException;
+use SMW\Exception\FileNotWritableException;
 
 /**
  * @license GNU GPL v2+
@@ -13,6 +14,17 @@ use RuntimeException;
 class File {
 
 	/**
+	 * @since 3.1
+	 *
+	 * @param string $file
+	 *
+	 * @return string
+	 */
+	public static function dir( $file ) {
+		return str_replace( [ '\\', '//', '/' ], DIRECTORY_SEPARATOR, $file );
+	}
+
+	/**
 	 * @since 3.0
 	 *
 	 * @param string $file
@@ -20,6 +32,13 @@ class File {
 	 * @param integer $flags
 	 */
 	public function write( $file, $contents, $flags = 0 ) {
+
+		$file = self::dir( $file );
+
+		if ( !is_writable( dirname( $file ) ) ) {
+			throw new FileNotWritableException( "$file" );
+		}
+
 		file_put_contents( $file, $contents, $flags );
 	}
 
@@ -31,7 +50,7 @@ class File {
 	 * @return boolean
 	 */
 	public function exists( $file ) {
-		return file_exists( $file );
+		return file_exists( self::dir( $file ) );
 	}
 
 	/**
@@ -44,6 +63,8 @@ class File {
 	 * @throws RuntimeException
 	 */
 	public function read( $file, $checkSum = null ) {
+
+		$file = self::dir( $file );
 
 		if ( !is_readable( $file ) ) {
 			throw new RuntimeException( "$file is not readable." );
@@ -62,7 +83,7 @@ class File {
 	 * @param string $file
 	 */
 	public function delete( $file ) {
-		@unlink( $file );
+		@unlink( self::dir( $file ) );
 	}
 
 	/**

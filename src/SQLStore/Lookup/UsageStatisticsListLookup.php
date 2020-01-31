@@ -70,7 +70,8 @@ class UsageStatisticsListLookup implements ListLookup {
 			'USEDPROPS' => $this->getUsedPropertiesCount(),
 			'TOTALPROPS' => $this->getTotalPropertiesCount(),
 			'ERRORUSES' => $this->getImproperValueForCount(),
-			'DELETECOUNT' => $this->getDeleteCount()
+			'DELETECOUNT' => $this->getDeleteCount(),
+			'TOTALENTITIES' => $this->getTotalEntitiesCount()
 		];
 	}
 
@@ -232,7 +233,7 @@ class UsageStatisticsListLookup implements ListLookup {
 		$count = 0;
 
 		$row = $this->store->getConnection()->selectRow(
-			[ $this->store->getStatisticsTable() ],
+			[ SQLStore::PROPERTY_STATISTICS_TABLE ],
 			'SUM( usage_count ) AS count',
 			[],
 			__METHOD__
@@ -268,6 +269,25 @@ class UsageStatisticsListLookup implements ListLookup {
 		$count = $row ? $row->count : $count;
 
 		return (int)$count;
+	}
+
+	/**
+	 * @since 3.1
+	 *
+	 * @return number
+	 */
+	public function getTotalEntitiesCount() {
+
+		$connection = $this->store->getConnection( 'mw.db' );
+
+		$row = $connection->selectRow(
+			SQLStore::ID_TABLE,
+			'Count( * ) AS count',
+			[],
+			__METHOD__
+		);
+
+		return isset( $row->count ) ? (int)$row->count : 0;
 	}
 
 	/**

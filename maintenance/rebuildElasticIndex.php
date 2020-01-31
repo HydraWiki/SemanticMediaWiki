@@ -5,11 +5,19 @@ namespace SMW\Maintenance;
 use SMW\ApplicationFactory;
 use SMW\SQLStore\SQLStore;
 use SMW\Elastic\ElasticFactory;
+use SMW\Elastic\ElasticStore;
 use SMW\Setup;
+use SMW\SetupFile;
+use SMW\Utils\CliMsgFormatter;
 
-$basePath = getenv( 'MW_INSTALL_PATH' ) !== false ? getenv('MW_INSTALL_PATH' ) : __DIR__ . '/../../..';
-
-require_once $basePath . '/maintenance/Maintenance.php';
+/**
+ * Load the required class
+ */
+if ( getenv( 'MW_INSTALL_PATH' ) !== false ) {
+	require_once getenv( 'MW_INSTALL_PATH' ) . '/maintenance/Maintenance.php';
+} else {
+	require_once __DIR__ . '/../../../maintenance/Maintenance.php';
+}
 
 /**
  * @license GNU GPL v2+
@@ -35,12 +43,23 @@ class RebuildElasticIndex extends \Maintenance {
 	private $jobQueue;
 
 	/**
+	 * @var AutoRecovery
+	 */
+	private $autoRecovery;
+
+	/**
+	 * @var CliMsgFormatter
+	 */
+	private $cliMsgFormatter;
+
+	/**
 	 * @see Maintenance::__construct
 	 *
 	 * @since 3.0
 	 */
 	public function __construct() {
-		$this->mDescription = 'Rebuild the Elasticsearch index from property tables (content is not explicitly parsed!)';
+		parent::__construct();
+		$this->addDescription( 'Rebuild the Elasticsearch index from property tables (content is not explicitly parsed!)' );
 		$this->addOption( 's', 'Start with a selected document no.', false, true );
 		$this->addOption( 'e', 'End with a selected document no. (requires a start ID)', false, true );
 		$this->addOption( 'page', 'Set of pages (Foo|Bar|...)', false, true );
@@ -49,11 +68,12 @@ class RebuildElasticIndex extends \Maintenance {
 		$this->addOption( 'delete-all', 'Delete listed indices without rebuilding the data', false, false );
 		$this->addOption( 'skip-fileindex', 'Skipping any file ingest actions', false, false );
 		$this->addOption( 'run-fileindex', 'Only run file ingest actions', false, false );
+		$this->addOption( 'auto-recovery', 'Allows to restart from a canceled (or aborted) index run', false, false );
+		$this->addOption( 'only-update', 'Run an update without switching indices and a rollover (short cut for -s 1)', false, false );
 
 		$this->addOption( 'debug', 'Sets global variables to support debug ouput while running the script', false );
 		$this->addOption( 'report-runtime', 'Report execution time and memory usage', false );
-
-		parent::__construct();
+		$this->addOption( 'with-maintenance-log', 'Add log entry to `Special:Log` about the maintenance run.', false );
 	}
 
 	/**
@@ -70,13 +90,7 @@ class RebuildElasticIndex extends \Maintenance {
 	 */
 	public function execute() {
 
-		if ( !Setup::isEnabled() ) {
-			$this->output( "You need to have SMW enabled in order to use this maintenance script!\n\n" );
-			exit;
-		}
-
-		if ( !Setup::isValid( true ) ) {
-			$this->reportMessage( "\nYou need to run `update.php` or `setupStore.php` first before continuing\nwith any maintenance tasks!\n" );
+		if ( $this->canExecute() !== true ) {
 			exit;
 		}
 
@@ -102,16 +116,23 @@ class RebuildElasticIndex extends \Maintenance {
 			$maintenanceHelper->setGlobalToValue( 'wgDebugLogGroups', [] );
 		}
 
+		$this->autoRecovery = $maintenanceFactory->newAutoRecovery( 'rebuildElasticIndex.php' );
+
+		$this->autoRecovery->enable(
+			$this->hasOption( 'auto-recovery' )
+		);
+
 		$this->jobQueue = $applicationFactory->getJobQueue();
 		$this->store = $applicationFactory->getStore( 'SMW\SQLStore\SQLStore' );
 		$elasticFactory = $applicationFactory->create( 'ElasticFactory' );
+		$messageReporter = $maintenanceFactory->newMessageReporter( [ $this, 'reportMessage' ] );
 
 		$this->rebuilder = $elasticFactory->newRebuilder(
 			$this->store
 		);
 
 		$this->rebuilder->setMessageReporter(
-			$maintenanceFactory->newMessageReporter( [ $this, 'reportMessage' ] )
+			$messageReporter
 		);
 
 		if ( !$this->rebuilder->ping() ) {
@@ -120,12 +141,30 @@ class RebuildElasticIndex extends \Maintenance {
 			);
 		}
 
+		if ( $this->hasOption( 'only-update' ) ) {
+			$this->mOptions['s'] = 1;
+		}
+
+		$this->cliMsgFormatter = new CliMsgFormatter();
+
 		$this->reportMessage(
-			"\nThe script rebuilds the index from available property tables. Any\n" .
-			"change of the index rules (e.g. altered stopwords, new stemmer etc.)\n" .
-			"or a newly added (or altered) table requires to run this script again\n" .
-			"to ensure that the index complies with the rules set forth by the SQL\n" .
-			"back-end or the Elasticsearch field mapping.\n"
+			"\n" . $this->cliMsgFormatter->head()
+		);
+
+		$this->reportMessage(
+			$this->cliMsgFormatter->section( 'About' )
+		);
+
+		$text = [
+			"The script rebuilds the index from available property tables. Changes",
+			"to the index rules (e.g. altered stopwords, new stemmer etc.) or a",
+			"newly added (or altered) table requires to run this script again",
+			"to ensure that the index complies with the rules set forth by the SQL",
+			"back-end or the Elasticsearch field mapping."
+		];
+
+		$this->reportMessage(
+			"\n" . $this->cliMsgFormatter->wordwrap( $text ) . "\n"
 		);
 
 		if ( $this->otherActivities() ) {
@@ -134,19 +173,43 @@ class RebuildElasticIndex extends \Maintenance {
 
 		$this->showAbort();
 
+		$text = [
+			"If for some reason the rebuild process is aborted, please make sure",
+			"to run `--update-settings` so that default settings can be recovered",
+			"and set to the default replication mode."
+		];
+
 		$this->reportMessage(
-			"\nIf for some reason the rebuild process is aborted, please make sure\n" .
-			"to run `--update-settings` so that default settings can be recovered\n".
-			"and set to a normal working mode.\n"
+			$this->cliMsgFormatter->wordwrap( $text ) . "\n"
 		);
 
 		$this->rebuild();
 
 		if ( $this->hasOption( 'report-runtime' ) ) {
-			$this->reportMessage( "\n" . $maintenanceHelper->getFormattedRuntimeValues() . "\n" );
+			$this->reportMessage( $this->cliMsgFormatter->section( 'Runtime report' ) );
+
+			$this->reportMessage(
+				"\n" . $maintenanceHelper->getFormattedRuntimeValues()
+			);
+		}
+
+		if ( $this->hasOption( 'with-maintenance-log' ) ) {
+			$maintenanceLogger = $maintenanceFactory->newMaintenanceLogger( 'RebuildElasticIndexLogger' );
+			$runtimeValues = $maintenanceHelper->getRuntimeValues();
+
+			$log = [
+				'Memory used' => $runtimeValues['memory-used'],
+				'Time used' => $runtimeValues['humanreadable-time']
+			];
+
+			$maintenanceLogger->logFromArray( $log );
 		}
 
 		$maintenanceHelper->reset();
+		$setupFile = new SetupFile();
+		$setupFile->removeIncompleteTask( ElasticStore::REBUILD_INDEX_RUN_INCOMPLETE );
+
+		$this->autoRecovery->set( 'ar_id', false );
 
 		return true;
 	}
@@ -171,37 +234,67 @@ class RebuildElasticIndex extends \Maintenance {
 		exit( 1 );
 	}
 
+	private function canExecute() {
+
+		if ( !Setup::isEnabled() ) {
+			return $this->reportMessage(
+				"\nYou need to have SMW enabled in order to run the maintenance script!\n"
+			);
+		}
+
+		if ( !Setup::isValid( true ) ) {
+			return $this->reportMessage(
+				"\nYou need to run `update.php` or `setupStore.php` first before continuing\n" .
+				"with this maintenance task!\n"
+			);
+		}
+
+		return true;
+	}
+
 	private function otherActivities() {
 
 		if ( $this->hasOption( 'update-settings' ) ) {
+
 			$this->reportMessage(
-				"\n" . 'Settings and mappings ...'
+				$this->cliMsgFormatter->section( 'Other activities' )
 			);
 
-			$message = $this->rebuilder->setDefaults() ? '   ... done.' : '   ... failed (due to missing index).';
-			$this->reportMessage( "\n$message\n" );
+			$this->reportMessage( "\n" . 'Settings and mappings ...' );
+			$this->rebuilder->setDefaults();
+			$this->reportMessage( "   ... done.\n" );
 
 			return true;
 		}
 
 		if ( $this->hasOption( 'force-refresh' ) ) {
+
 			$this->reportMessage(
-				"\n" . 'Forcing refresh of known indices ...'
+				$this->cliMsgFormatter->section( 'Other activities' )
 			);
 
-			$message = $this->rebuilder->refresh() ? '   ... done.' : '   ... failed (due to missing index).';
-			$this->reportMessage( "\n$message\n" );
+			$this->reportMessage(
+				"\n" . 'Forcing refresh of known indices ...' . "\n"
+			);
+
+			$this->rebuilder->refresh();
+			$this->reportMessage( "   ... done.\n" );
 
 			return true;
 		}
 
 		if ( $this->hasOption( 'delete-all' ) ) {
+
+			$this->reportMessage(
+				$this->cliMsgFormatter->section( 'Other activities' )
+			);
+
 			$this->reportMessage(
 				"\n" . 'Deleting all indices ...'
 			);
 
 			$this->rebuilder->deleteAndSetupIndices();
-			$this->reportMessage( "\n   ... done.\n" );
+			$this->reportMessage( "   ... done.\n" );
 
 			return true;
 		}
@@ -213,37 +306,96 @@ class RebuildElasticIndex extends \Maintenance {
 
 		$showAbort = !$this->hasOption( 'quick' ) && !$this->hasOption( 's' ) && !$this->hasOption( 'page' ) && !$this->hasOption( 'run-fileindex' );
 
+		if ( $this->hasOption( 'auto-recovery' ) && $this->autoRecovery->has( 'ar_id' ) ) {
+			$showAbort = false;
+		}
+
 		if ( !$showAbort ) {
+			$this->reportMessage( "\n" );
 			return;
 		}
 
 		$this->reportMessage(
-			"\nThe rebuild will use a rollover approach which means that while the\n" .
-			"new index is created, the old index is still available and allows\n" .
-			"queries to work even though the rebuild is ongoing. Once completed,\n" .
-			"a \"rollover\" will switch the indices at which point the old indices\n" .
-			"are being removed.\n"
+			$this->cliMsgFormatter->section( 'Notice' )
 		);
+
+		$text = [
+			"The rebuild will use a rollover approach which means that while the new",
+			"index is created, the old index is still available and allows queries",
+			"to work even though the rebuild is ongoing. Once completed, a \"rollover\"",
+			"will switch the indices at which point the old indices are being",
+			"removed.",
+			"\n\n",
+			"It should be noted that the replication is paused for the duration",
+			"of the rebuild to allow changes to pages and annotations to be",
+			"processed after the re-index has been completed therefore running",
+			"the job scheduler is obligatory."
+		];
 
 		$this->reportMessage(
-			"\nIt should be noted that the replication is paused for the duration\n" .
-			"of the rebuild to allow changes to pages and annotations to be\n" .
-			"processed after the re-index has been completed therefore running\n".
-			"the job scheduler is obligatory.\n"
+			"\n" . $this->cliMsgFormatter->wordwrap( $text ) . "\n"
 		);
 
-		$this->reportMessage( "\n" . 'Abort the rebuild with control-c in the next five seconds ...  ' );
-		swfCountDown( 5 );
+		if ( $this->hasOption( 'quiet' ) ) {
+			return;
+		}
+
+		$this->reportMessage(
+			"\n" . $this->cliMsgFormatter->countDown( 'Abort the rebuild with CTRL-C in ...', 5 )
+		);
 	}
 
 	private function rebuild() {
 
-		$this->reportMessage( "\nRebuilding indices ..." );
-		$isSelective = $this->hasOption( 's' ) || $this->hasOption( 'page' );
+		$this->reportMessage(
+			$this->cliMsgFormatter->section( 'Indices rebuild' )
+		);
 
-		if ( !$this->hasOption( 's' ) && !$this->hasOption( 'page' ) && !$this->hasOption( 'run-fileindex' ) ) {
-			$this->reportMessage( "\n" . '   ... creating required indices and aliases ...' );
+		$isSelective = false;
+
+		if ( $this->autoRecovery->has( 'ar_id' ) ) {
+
+			$this->reportMessage(
+				"\n" . $this->cliMsgFormatter->oneCol( 'Auto-recovery mode ...' )
+			);
+
+			$this->reportMessage(
+				$this->cliMsgFormatter->twoCols( '... ID (document):', $this->autoRecovery->get( 'ar_id' ), 3 )
+			);
+		} elseif ( $this->hasOption( 's' ) || $this->hasOption( 'page' ) ) {
+			$isSelective = true;
+		}else {
+			$this->autoRecovery->set( 'ar_id', false );
+		}
+
+		$this->reportMessage( "\nRebuilding indices ...\n" );
+
+		if (
+			!$this->hasOption( 's' ) &&
+			!$this->hasOption( 'page' ) &&
+			!$this->hasOption( 'run-fileindex' ) &&
+			!$this->hasOption( 'auto-recovery' ) ) {
+
+			$this->reportMessage(
+				$this->cliMsgFormatter->firstCol( '   ... creating required indices and aliases ...' )
+			);
+
 			$this->rebuilder->createIndices();
+
+			$this->reportMessage(
+				$this->cliMsgFormatter->secondCol( CliMsgFormatter::OK )
+			);
+		} elseif ( !$this->rebuilder->hasIndices() ) {
+
+			$this->reportMessage(
+				$this->cliMsgFormatter->firstCol( '   ... creating required indices and aliases ...' )
+			);
+
+			$this->rebuilder->createIndices();
+
+			$this->reportMessage(
+				$this->cliMsgFormatter->secondCol( CliMsgFormatter::OK )
+			);
 		}
 
 		$this->rebuilder->prepare();
@@ -257,10 +409,8 @@ class RebuildElasticIndex extends \Maintenance {
 			$last = $res->numRows();
 		}
 
-		if ( $res->numRows() > 0 ) {
-			$this->reportMessage( "\n" );
-		} else {
-			$this->reportMessage( "\n" . '   ... no documents to process ...' );
+		if ( $res->numRows() == 0 ) {
+			$this->reportMessage( '   ... no documents to process ...' );
 		}
 
 		$this->rebuilder->set( 'skip-fileindex', $this->getOption( 'skip-fileindex' ) );
@@ -268,33 +418,45 @@ class RebuildElasticIndex extends \Maintenance {
 
 		foreach ( $res as $row ) {
 			$i++;
-			$this->rebuild_row( $i, $row, $last, $isSelective );
+			$this->rebuildByRow( $i, $row, $last, $isSelective );
 		}
+
+		$this->reportMessage( "\n   ... done.\n" );
+		$this->reportMessage( "\n" . 'Settings and mappings ...' );
 
 		$this->rebuilder->setDefaults();
 		$this->rebuilder->refresh();
 
-		$this->reportMessage( "\n" . '   ... done.' . "\n" );
+		$this->reportMessage( '   ... done.' . "\n" );
 
 		if ( ( $count = $this->jobQueue->getQueueSize( 'smw.elasticIndexerRecovery' ) ) > 0 ) {
-			$this->reportMessage( "\n" . "Job queue ..." );
-			$this->reportMessage( "\n" . "   ... smw.elasticIndexerRecovery has $count unprocessed jobs ..." );
-			$this->reportMessage( "\n" . '   ... done.' . "\n" );
+			$this->reportMessage(
+				$this->cliMsgFormatter->section( 'Job queue' )
+			);
+
+			$this->reportMessage( "\n" );
+
+			$this->reportMessage(
+				$this->cliMsgFormatter->twoCols( "`smw.elasticIndexerRecovery` jobs:", "(Unprocessed) $count" )
+			);
 		}
 	}
 
-	private function rebuild_row( $i, $row, $last, $isSelective ) {
+	private function rebuildByRow( $i, $row, $last, $isSelective ) {
 
 		$i = $isSelective ? $i : $row->smw_id;
 		$key = $isSelective ? '(count)' : 'no.';
+		$progress = $this->cliMsgFormatter->progressCompact( $i, $last );
 
 		$this->reportMessage(
-			"\r". sprintf( "%-50s%s", "   ... updating document $key", sprintf( "%4.0f%% (%s/%s)", ( $i / $last ) * 100, $i, $last ) )
+			$this->cliMsgFormatter->twoColsOverride( "   ... updating document ...", $progress )
 		);
 
 		if ( $row->smw_iw === SMW_SQL3_SMWDELETEIW || $row->smw_iw === SMW_SQL3_SMWREDIIW ) {
 			return $this->rebuilder->delete( $row->smw_id );
 		}
+
+		$this->autoRecovery->set( 'ar_id', (int)$row->smw_id );
 
 		$dataItem = $this->store->getObjectIds()->getDataItemById(
 			$row->smw_id
@@ -304,9 +466,12 @@ class RebuildElasticIndex extends \Maintenance {
 			return;
 		}
 
+		$semanticData = $this->store->getSemanticData( $dataItem );
+		$semanticData->setExtensionData( 'revision_id', $row->smw_rev );
+
 		$this->rebuilder->rebuild(
 			$row->smw_id,
-			$this->store->getSemanticData( $dataItem )
+			$semanticData
 		);
 	}
 
@@ -317,7 +482,9 @@ class RebuildElasticIndex extends \Maintenance {
 		$conditions = [];
 		$conditions[] = "smw_iw!=" . $connection->addQuotes( SMW_SQL3_SMWIW_OUTDATED );
 
-		if ( $this->hasOption( 's' ) ) {
+		if ( $this->hasOption( 'auto-recovery' ) && $this->autoRecovery->has( 'ar_id' ) ) {
+			$conditions[] = 'smw_id >= ' . $connection->addQuotes( $this->autoRecovery->get( 'ar_id' ) );
+		} elseif ( $this->hasOption( 's' ) ) {
 			$conditions[] = 'smw_id >= ' . $connection->addQuotes( $this->getOption( 's' ) );
 
 			if ( $this->hasOption( 'e' ) ) {

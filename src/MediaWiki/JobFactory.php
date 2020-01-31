@@ -6,7 +6,6 @@ use SMW\MediaWiki\Jobs\NullJob;
 use SMW\MediaWiki\Jobs\RefreshJob;
 use SMW\MediaWiki\Jobs\UpdateJob;
 use SMW\MediaWiki\Jobs\UpdateDispatcherJob;
-use SMW\MediaWiki\Jobs\ParserCachePurgeJob;
 use SMW\MediaWiki\Jobs\EntityIdDisposerJob;
 use SMW\MediaWiki\Jobs\PropertyStatisticsRebuildJob;
 use SMW\MediaWiki\Jobs\FulltextSearchTableUpdateJob;
@@ -14,6 +13,7 @@ use SMW\MediaWiki\Jobs\FulltextSearchTableRebuildJob;
 use SMW\MediaWiki\Jobs\ChangePropagationDispatchJob;
 use SMW\MediaWiki\Jobs\ChangePropagationUpdateJob;
 use SMW\MediaWiki\Jobs\ChangePropagationClassUpdateJob;
+use SMW\MediaWiki\Jobs\ParserCachePurgeJob;
 use RuntimeException;
 use Title;
 
@@ -126,18 +126,6 @@ class JobFactory {
 	}
 
 	/**
-	 * @since 2.0
-	 *
-	 * @param Title $title
-	 * @param array $parameters
-	 *
-	 * @return ParserCachePurgeJob
-	 */
-	public function newParserCachePurgeJob( Title $title, array $parameters = [] ) {
-		return new ParserCachePurgeJob( $title, $parameters );
-	}
-
-	/**
 	 * @since 2.5
 	 *
 	 * @param Title $title
@@ -219,6 +207,18 @@ class JobFactory {
 	 */
 	public function newChangePropagationClassUpdateJob( Title $title, array $parameters = [] ) {
 		return new ChangePropagationClassUpdateJob( $title, $parameters );
+	}
+
+	/**
+	 * @since 3.1
+	 *
+	 * @param Title $title
+	 * @param array $parameters
+	 *
+	 * @return ParserCachePurgeJob
+	 */
+	public function newParserCachePurgeJob( Title $title, array $parameters = [] ) {
+		return new ParserCachePurgeJob( $title, $parameters );
 	}
 
 }

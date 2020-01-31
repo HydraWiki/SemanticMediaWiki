@@ -31,6 +31,47 @@ return [
 	'smwgExtraneousLanguageFileDir' => __DIR__ . '/i18n/extra',
 	'smwgServicesFileDir' => __DIR__ . '/src/Services',
 	'smwgResourceLoaderDefFiles' => [ 'smw' => __DIR__ . '/res/Resources.php' ],
+	'smwgMaintenanceDir' => __DIR__ . '/maintenance',
+	'smwgTemplateDir' => __DIR__ . '/data/template',
+	##
+
+	###
+	# Configuration directory
+	# @see #3506
+	#
+	# The maintained directory needs to be writable in order for configuration
+	# information to be stored persistently and be accessible for Semantic
+	# MediaWiki throughout its operation.
+	#
+	# You may assign the same directory as in `wgUploadDirectory` (e.g
+	# $smwgConfigFileDir = $wgUploadDirectory;) or select an entire different
+	# location. The default location is the Semantic MediaWiki extension root.
+	#
+	# During its operation it may contain:
+	#  - `.smw.json`
+	#  - `.smw.maintenance.json`
+	#
+	# @since 3.0
+	##
+	'smwgConfigFileDir' => __DIR__,
+	##
+
+	###
+	# Upgrade key
+	#
+	# This key verifies that a correct upgrade (update.php/setupStore.php) path
+	# was selected and hereby ensures a consistent DB setup.
+	#
+	# Whenever a DB table change occurs, modify the key value (e.g. `smw:20...`)
+	# to reflect the requirement for the client to follow the processes as
+	# outlined in the installation manual.
+	#
+	# Once the installer is run, the `.smw.json` will be updated and no longer
+	# cause any exception.
+	#
+	# @since 3.0
+	##
+	'smwgUpgradeKey' => 'smw:2019-09-23',
 	##
 
 	###
@@ -47,7 +88,7 @@ return [
 	#
 	# @since 2.5
 	##
-	'smwgImportFileDirs' => [ 'default' => __DIR__ . '/data/import' ],
+	'smwgImportFileDirs' => [ 'smw' => __DIR__ . '/data/import' ],
 	'smwgImportReqVersion' => 1,
 	##
 
@@ -63,30 +104,19 @@ return [
 	##
 
 	###
-	# Upgrade key
+	# Allows to ignore the check for whether the extension was correctly enabled
+	# or not. It will display an error message on `Special:Version` in case it was
+	# not.
 	#
-	# This key verifies that a correct upgrade (update.php/setupStore.php) path
-	# was selected and hereby ensures a consistent DB setup.
+	# SMW 3.2 added an additional validation to check that `wfLoadExtension(
+	# 'SemanticMediaWiki')` isn't used given its conflict with `enableSemantics`.
+	# If the setting is set to `false` then this check is disabled as well.
 	#
-	# Whenever a DB table change occurs, modify the key value (e.g. `DB-Foo...`)
-	# to reflect the requirement for the client to follow the processes as
-	# outlined in the installation manual.
+	# To ignore the check and suppress the error, set the value to `true`.
 	#
-	# Once the installer is run, the `.smw.json` will be updated and no longer
-	# causes an exception.
-	#
-	# @since 3.0
+	# @since 3.1
 	##
-	'smwgUpgradeKey' => 'DB-2018-09-01',
-	##
-
-	###
-	# CompatibilityMode is to force SMW to work with other extensions that may impact
-	# performance in an unanticipated way or may contain potential incompatibilities.
-	#
-	# @since 2.4
-	##
-	'smwgEnabledCompatibilityMode' => false,
+	'smwgIgnoreExtensionRegistrationCheck' => false,
 	##
 
 	###
@@ -130,18 +160,18 @@ return [
 	#
 	# Available DB index as provided by MediaWiki:
 	#
-	# - DB_SLAVE or DB_REPLICA (1.28+)
+	# - DB_REPLICA (1.27.4+)
 	# - DB_MASTER
 	#
 	# @since 2.5.3
 	##
 	'smwgLocalConnectionConf' => [
 		'mw.db' => [
-			'read'  => DB_SLAVE,
+			'read'  => DB_REPLICA,
 			'write' => DB_MASTER
 		],
 		'mw.db.queryengine' => [
-			'read'  => DB_SLAVE,
+			'read'  => DB_REPLICA,
 			'write' => DB_MASTER
 		]
 	],
@@ -343,9 +373,11 @@ return [
 	#
 	# - SMW_FACTBOX_DISPLAY_SUBOBJECT displays subobject references
 	#
+	# - SMW_FACTBOX_DISPLAY_ATTACHMENT displays attachment list
+	#
 	# @since 3.0
 	##
-	'smwgFactboxFeatures' => SMW_FACTBOX_CACHE | SMW_FACTBOX_PURGE_REFRESH | SMW_FACTBOX_DISPLAY_SUBOBJECT,
+	'smwgFactboxFeatures' => SMW_FACTBOX_CACHE | SMW_FACTBOX_PURGE_REFRESH | SMW_FACTBOX_DISPLAY_SUBOBJECT | SMW_FACTBOX_DISPLAY_ATTACHMENT,
 
 	###
 	# This setting allows you to select in which cases you want to have a factbox
@@ -379,8 +411,9 @@ return [
 	# arbitrary text elements and therefore become difficult to transfer when its
 	# length exceeds a certain character length.
 	#
-	# A compact link will be encoded and compressed to ensure that it can be handled
-	# more easily when referring to it as an URL representation.
+	# The experimental feature of a compact link will be encoded and compressed to
+	# ensure that it can be handled more easily when referring to it as an URL
+	# representation.
 	#
 	# It is not expected to be used as a short-url service, yet in some instances
 	# the generate URL can be comparatively shorter than the plain URL.
@@ -392,7 +425,7 @@ return [
 	# @since 3.0
 	# @default true
 	##
-	'smwgCompactLinkSupport' => true,
+	'smwgCompactLinkSupport' => false,
 	##
 
 	###
@@ -493,7 +526,7 @@ return [
 
 		// Special:Browse
 		'browse' => [
-			'valuelist.outgoing' => 200,
+			'valuelist.outgoing' => 30,
 			'valuelist.incoming' => 20,
 		]
 	],
@@ -569,6 +602,12 @@ return [
 	#
 	# - SMW_QSORT_RANDOM: Random sorting support for query results (was
 	#   $smwgQRandSortingSupport)
+	#
+	# - SMW_QSORT_UNCONDITIONAL: Allows an unconditional sort of results even if
+	#   the property doesn't exists as part of the result set (#2823). The option
+	#   isn't implemented for the SPARQLStore and the ElasticStore requires
+	#   the `sort.property.must.exists` to be diabled to reflect the same sorting
+	#   characteristics as with this setting enabled.
 	#
 	# @since 3.0
 	##
@@ -745,16 +784,16 @@ return [
 		'ol'         => 'SMW\Query\ResultPrinters\ListResultPrinter',
 		'ul'         => 'SMW\Query\ResultPrinters\ListResultPrinter',
 		'category'   => 'SMW\Query\ResultPrinters\CategoryResultPrinter',
-		'embedded'   => 'SMW\EmbeddedResultPrinter',
+		'embedded'   => 'SMW\Query\ResultPrinters\EmbeddedResultPrinter',
 		'template'   => 'SMW\Query\ResultPrinters\ListResultPrinter',
 		'count'      => 'SMW\Query\ResultPrinters\NullResultPrinter',
 		'debug'      => 'SMW\Query\ResultPrinters\NullResultPrinter',
 		'feed'       => 'SMW\Query\ResultPrinters\FeedExportPrinter',
 		'csv'        => 'SMW\Query\ResultPrinters\CsvFileExportPrinter',
 		'templatefile' => 'SMW\Query\ResultPrinters\TemplateFileExportPrinter',
-		'dsv'        => 'SMW\DsvResultPrinter',
-		'json'       => 'SMW\JsonResultPrinter',
-		'rdf'        => 'SMW\RdfResultPrinter'
+		'dsv'        => 'SMW\Query\ResultPrinters\DsvResultPrinter',
+		'json'       => 'SMW\Query\ResultPrinters\JsonResultPrinter',
+		'rdf'        => 'SMW\Query\ResultPrinters\RdfResultPrinter'
 	],
 	##
 
@@ -774,6 +813,19 @@ return [
 		'plainlist' => [ 'plain' ]
 	],
 	##
+
+	/**
+	 * Affects format=list.
+	 *
+	 * When set to false (the default), format=list will result in lists with HTML markup.
+	 * In this case you can get a plain list via format=plainlist.
+	 *
+	 * To also get plain lists (without HTML markup) when using format=list, set this setting to true.
+	 * In SMW versions older than 3.0 format=list always resulted in a plain list, so this setting allows restoring old behavior.
+	 *
+	 * @since 3.1.2
+	 */
+	'smwgPlainList' => false,
 
 	##
 	# Result printer features
@@ -850,7 +902,7 @@ return [
 
 	###
 	# SMW defers some tasks until after a page was edited by using the MediaWiki
-	# job queueing system (see http://www.mediawiki.org/wiki/Manual:Job_queue).
+	# job queueing system (see https://www.mediawiki.org/wiki/Manual:Job_queue).
 	# For example, when the type of a property is changed, all affected pages will
 	# be scheduled for (later) update. If a wiki generates too many jobs in this
 	# way (Special:Statistics and "showJobs.php" can be used to check that), the
@@ -897,6 +949,7 @@ return [
 	# - `_MDAT` Modification date is enabled by default for backward compatibility.
 	# - `_TRANS` Add annotations (language, source etc. ) when a page is
 	#   indentified as translation page (as done by the Translation extension)
+	# - `_ATTCH_LINK` tracks embedded files and images
 	#
 	#  Extend array to enable other properties:
 	#     $smwgPageSpecialProperties[ => '_CDAT',
@@ -1027,9 +1080,16 @@ return [
 	# - SMW_ADM_PSTATS: Property statistics update
 	# - SMW_ADM_FULLT:
 	#
+	#   Maintenance alerts
+	#
+	# - SMW_ADM_ALERT_LAST_OPTIMIZATION_RUN: Alerts when table optimization is
+	#   overdue
+	#
 	# @since 2.5
 	##
-	'smwgAdminFeatures' => SMW_ADM_REFRESH | SMW_ADM_SETUP | SMW_ADM_DISPOSAL | SMW_ADM_PSTATS | SMW_ADM_FULLT,
+	'smwgAdminFeatures' =>
+		SMW_ADM_REFRESH | SMW_ADM_SETUP | SMW_ADM_DISPOSAL | SMW_ADM_PSTATS | SMW_ADM_FULLT |
+		SMW_ADM_ALERT_LAST_OPTIMIZATION_RUN,
 	##
 
 	###
@@ -1050,58 +1110,12 @@ return [
 	# `$wgParserCacheType` if they are set.
 	#
 	# @see https://www.semantic-mediawiki.org/wiki/Help:Caching
-	# @see http://www.mediawiki.org/wiki/$wgMainCacheType
+	# @see https://www.mediawiki.org/wiki/$wgMainCacheType
 	#
 	# @since 3.0
 	# @default CACHE_ANYTHING
 	##
 	'smwgMainCacheType' => CACHE_ANYTHING,
-	##
-
-	###
-	# Separate cache type to allow for adding a more responsive cache layer
-	# (redis, riak) when requesting value lookups from the SQLStore.
-	#
-	# CACHE_NONE = disabled, uses the standard SQLStore DB access for all
-	# lookups
-	#
-	# @since 2.3 (experimental)
-	#
-	# @default: CACHE_NONE, users need to actively enable it in order
-	# to make use of it
-	##
-	'smwgEntityLookupCacheType' => CACHE_NONE,
-	##
-
-	###
-	# Declares a lifetime of a cached item for `smwgEntityLookupCacheType` until it
-	# is removed if not invalidated before.
-	#
-	# @since 2.3
-	##
-	'smwgEntityLookupCacheLifetime' => 60 * 60 * 24 * 7, // a week
-	##
-
-	##
-	# Features expected to be enabled in CachedValueLookupStore
-	#
-	# Flags that declare a enable/disable state of a supported functionality. If a
-	# feature is disabled then a connection is always established to the standard
-	# Repository/DB backend.
-	#
-	# The settings are only relevant for cases where `smwgEntityLookupCacheType` is
-	# set.
-	#
-	# - SMW_VL_SD: corresponds to Store::getSemanticData
-	# - SMW_VL_PL: corresponds to Store::getProperties
-	# - SMW_VL_PV: corresponds to Store::getPropertyValues
-	# - SMW_VL_PS: corresponds to Store::getPropertySubjects
-	#
-	# @since 2.3
-	#
-	# @default: all features are enabled
-	##
-	'smwgEntityLookupFeatures' => SMW_VL_SD | SMW_VL_PL | SMW_VL_PV | SMW_VL_PS,
 	##
 
 	###
@@ -1141,10 +1155,12 @@ return [
 		'special.unusedproperties' => 3600,
 		'special.properties' => 3600,
 		'special.statistics' => 3600,
+		'table.statistics' => 3600,
 		'api.browse' => 3600,
 		'api.browse.pvalue' => 3600,
 		'api.browse.psubject' => 3600,
-		'api.task'  => 3600
+		'api.task'  => 3600,
+		'api.table.statistics'  => 3600
 	],
 	##
 
@@ -1294,6 +1310,12 @@ return [
 	# timely manner independent of a users job scheduler environment. The number
 	# indicates the expected number of jobs to be executed per request.
 	#
+	# `purge-page`
+	#   `on-outdated-query-dependency` actively does a page purge via the API
+	#   so that not only the parser cache is refreshed but also ensures that any
+	#   newly annotation values (such as annotations depending on some query input)
+	#   are stored and recomputed.
+	#
 	# @experimental
 	#
 	# `check-query` The display of query results and the storage of entities that
@@ -1318,8 +1340,10 @@ return [
 	'smwgPostEditUpdate' => [
 		'check-query' => false,
 		'run-jobs' => [
-			'smw.fulltextSearchTableUpdate' => 1,
-			'smw.parserCachePurge' => 5
+			'smw.fulltextSearchTableUpdate' => 1
+		],
+		'purge-page' => [
+			'on-outdated-query-dependency' => true
 		]
 	],
 	##
@@ -1329,9 +1353,6 @@ return [
 	#
 	# If enabled it will store dependencies for queries allowing it to purge
 	# the ParserCache on subjects with embedded queries that contain altered entities.
-	#
-	# The setting requires to run `update.php` (it creates an extra table). Also
-	# as noted in 	#1117, `SMW\ParserCachePurgeJob` should be scheduled accordingly.
 	#
 	# @since 2.3 (experimental)
 	# @default false
@@ -1355,20 +1376,9 @@ return [
 	#
 	# @since 2.3 (experimental)
 	##
-	'smwgQueryDependencyPropertyExemptionList' => [ '_MDAT', '_SOBJ', '_ASKDU' ],
-	##
-
-	###
-	# Listed properties are marked as affiliate, meaning that when an alteration to
-	# a property value occurs query dependencies for the related entity are recorded
-	# as well. For example, _DTITLE is most likely such property where a change would
-	# normally not be reflected in query results (as it not directly linked to a
-	# query) but when added as an affiliated, changes to its content will be
-	# handled as if it is linked to an embedded entity.
-	#
-	# @since 2.4 (experimental)
-	##
-	'smwgQueryDependencyAffiliatePropertyDetectionList' => [],
+	'smwgQueryDependencyPropertyExemptionList' => [
+		'_MDAT', '_SOBJ', '_ASKDU', '_ASKDE', '_ASKSI', '_ASKFO', '_ASKST'
+	],
 	##
 
 	###
@@ -1404,10 +1414,13 @@ return [
 	# @see https://www.semantic-mediawiki.org/wiki/Help:EnableSemantics
 	# @see https://www.semantic-mediawiki.org/wiki/Help:Pretty_URIs
 	#
+	# Example:
+	# 'smwgNamespace' => "http://example.org/id/"
+	#
 	# @since 1.0
-	# @default = ''
+	# @default null
 	##
-	// 	'smwgNamespace' => "http://example.org/id/",
+	'smwgNamespace' => null,
 	##
 
 	###
@@ -1534,6 +1547,9 @@ return [
 	#
 	# - SMW_DV_PROV_LHNT (PropertyValue) to output a <sup>p</sup> hint marker on
 	# properties that use a preferred label
+	#
+	# - SMW_DV_WPV_PIPETRICK WikiPageValue use a full pipe trick when rendering
+	# its caption
 	#
 	# @since 2.4
 	##
@@ -1819,11 +1835,34 @@ return [
 	# Listed characters are categorized as invalid for a property label and will
 	# result in an error.
 	#
-	# @see #1568, #1638, 3134
+	# @see #1568, #1638, #3134
 	#
 	# @since 2.5
 	##
-	'smwgPropertyInvalidCharacterList' => [ '[', ']' , '|' , '<' , '>', '{', '}', '+', '–', '%', "\r", "\n" ],
+	'smwgPropertyInvalidCharacterList' => [
+		// Common characters
+		'[', ']' , '|' , '<' , '>', '{', '}', '+', '–', '%', "\r", "\n",
+		'?', '*', '!'
+	],
+	##
+
+	##
+	# Properties classified as retired/no longer in use
+	#
+	# Listed properties will be removed from the entity table hereby avoids
+	# references or display of those classified as retired.
+	#
+	# The system normally leaves properties untouched (once created) but this
+	# setting allows them to be marked as retired and eventually removed from
+	# the system.
+	#
+	# @since 3.1
+	##
+	'smwgPropertyRetiredList' => [
+
+		// No longer valid predefined property prefixes
+		'_SF_', '_SD_'
+	],
 	##
 
 	##
@@ -1879,9 +1918,16 @@ return [
 	# to the desired target state and hereby automatically retires the related
 	# setting.
 	#
+	# - SMW_QUERYRESULT_PREFETCH to use the prefetch method to retrieve row
+	# related items for a `QueryResult`.
+	#
+	# - SMW_SHOWPARSER_USE_CURTAILMENT to use a short cut and circumventing the
+	# `QueryEngine` and directly access the DB since `#show` will always only
+	# request an output for one particular entity.
+	#
 	# @since 3.0
 	##
-	'smwgExperimentalFeatures' => false,
+	'smwgExperimentalFeatures' => SMW_QUERYRESULT_PREFETCH | SMW_SHOWPARSER_USE_CURTAILMENT,
 	##
 
 	##
@@ -1977,8 +2023,8 @@ return [
 	# @since 3.0
 	##
 	'smwgURITypeSchemeList' => [
-		'http', 'https', 'mailto', 'tel', 'ftp', 'news', 'file', 'urn', 'telnet',
-		'ldap', 'gopher'
+		'http', 'https', 'mailto', 'tel', 'ftp', 'sftp', 'news', 'file', 'urn',
+		'telnet', 'ldap', 'gopher', 'ssh', 'git', 'irc', 'ircs'
 	],
 	##
 
@@ -2012,6 +2058,69 @@ return [
 	##
 
 	##
+	# Subproperty type inheritance
+	#
+	# This setting enforces a type inheritance between a parent property and its
+	# subproperties.
+	#
+	# @since 3.1
+	# @default false
+	##
+	'smwgMandatorySubpropertyParentTypeInheritance' => false,
+	##
+
+	##
+	# Find and remove remnant entities
+	#
+	# So called remnant entities or ghosts (i.e. assignments in tables without a
+	# corresponding entry in a `smw_proptable_hash` field) should rarely happen
+	# but can and to enable the updater to re-balance the content of the
+	# `smw_proptable_hash` field (by checking and removing any ghosts in tables
+	# currently not in use for a particular subject). This setting can be enabled
+	# to force the updater/differ to make additional inquiries during an update
+	# to find and remove remnants that have no assignments in a table for a
+	# selected subject.
+	#
+	# The impact (in terms of performance) on the updater is unknown since each
+	# update is expected to run additional queries therefore the setting is
+	# set on purge only by default.
+	#
+	# - `purge` enables the check to happen only during a purge action which
+	#    limits a possible performance impact to a single subject request hereby
+	#    avoids impacting regular updates
+	# - `true` as setting will carry out the check on every update
+	# - `false` will disable the check all together
+	#
+	# @see #3849#issuecomment-477605049
+	#
+	# @since 3.1
+	# @default 'purge'
+	##
+	'smwgCheckForRemnantEntities' => 'purge',
+	##
+
+	##
+	# Lookup and display of constraint errors
+	#
+	# A convenience function to provided users with a help to quickly identify
+	# which constraints violation are currently exists for a viewed subject.
+	#
+	# - `SMW_CONSTRAINT_ERR_CHECK_NONE` disables the check and display via the
+	#    page indicator
+	# - `SMW_CONSTRAINT_ERR_CHECK_MAIN` will only check the main subject
+	# - `SMW_CONSTRAINT_ERR_CHECK_ALL` will check the main subject and all
+	#    subobjects attached to the main subject
+	#
+	# The constraint error lookup is cached therefore no negative performance
+	# impact is expected when viewing a page repeatedly.
+	#
+	# @since 3.1
+	# @default SMW_CONSTRAINT_ERR_CHECK_ALL
+	##
+	'smwgCheckForConstraintErrors' => SMW_CONSTRAINT_ERR_CHECK_ALL,
+	##
+
+	##
 	# THE FOLLOWING SETTINGS AND SUPPORT FUNCTIONS ARE EXPERIMENTAL!
 	#
 	# Please make you read the Readme.md (see the Elastic folder) file first
@@ -2031,16 +2140,42 @@ return [
 	##
 	'smwgSchemaTypes' => [
 		'LINK_FORMAT_SCHEMA' => [
-			'validation_schema' => __DIR__ . '/data/schema/link-format-schema.v1.json',
 			'group' => SMW_SCHEMA_GROUP_FORMAT,
+			'validation_schema' => __DIR__ . '/data/schema/link-format-schema.v1.json',
 			'type_description' => 'smw-schema-description-link-format-schema',
-			// '__factory' => [ 'SMW\Schema\SchemaFactory', 'newTest' ]
+			// 'class' => [ 'SMW\Schema\SchemaFactory', 'newTest' ]
 		],
 		'SEARCH_FORM_SCHEMA' => [
-			'validation_schema' => __DIR__ . '/data/schema/search-form-schema.v1.json',
 			'group' => SMW_SCHEMA_GROUP_SEARCH_FORM,
+			'validation_schema' => __DIR__ . '/data/schema/search-form-schema.v1.json',
 			'type_description' => 'smw-schema-description-search-form-schema'
-		]
+		],
+		'PROPERTY_GROUP_SCHEMA' => [
+			'group' => SMW_SCHEMA_GROUP_PROPERTY,
+			'validation_schema' => __DIR__ . '/data/schema/property-group-schema.v1.json',
+			'type_description' => 'smw-schema-description-property-group-schema'
+		],
+		'PROPERTY_CONSTRAINT_SCHEMA' => [
+			'group' => SMW_SCHEMA_GROUP_CONSTRAINT,
+			'validation_schema' => __DIR__ . '/data/schema/property-constraint-schema.v1.json',
+			'type_description' => 'smw-schema-description-property-constraint-schema',
+			'change_propagation' => [ '_CONSTRAINT_SCHEMA' ],
+			'usage_lookup' => '_CONSTRAINT_SCHEMA'
+		],
+		'CLASS_CONSTRAINT_SCHEMA' => [
+			'group' => SMW_SCHEMA_GROUP_CONSTRAINT,
+			'validation_schema' => __DIR__ . '/data/schema/class-constraint-schema.v1.json',
+			'type_description' => 'smw-schema-description-class-constraint-schema',
+			'change_propagation' => [ '_CONSTRAINT_SCHEMA' ],
+			'usage_lookup' => '_CONSTRAINT_SCHEMA'
+		],
+		'PROPERTY_PROFILE_SCHEMA' => [
+			'group' => SMW_SCHEMA_GROUP_PROFILE,
+			'validation_schema' => __DIR__ . '/data/schema/property-profile-schema.v1.json',
+			'type_description' => 'smw-schema-description-property-profile-schema',
+			'change_propagation' => '_PROFILE_SCHEMA',
+			'usage_lookup' => '_PROFILE_SCHEMA'
+		],
 	],
 	##
 
@@ -2064,6 +2199,7 @@ return [
 		],
 		'connection' =>[
 			'quick_ping' => true,
+
 			// Number of times the client tries to reconnect before throwing an
 			// exception
 			'retries' => 2,
@@ -2105,13 +2241,20 @@ return [
 			'job.recovery.retries' => 5,
 
 			// Number of max. retries before the file ingest
-			'job.file.ingest.retries' => 3
+			'job.file.ingest.retries' => 3,
+
+			// Compare and report the status of the replication on a page view
+			// about entities hereby allowing users to immediately comprehend a
+			// possible discrepancy between the stored on-wiki data and the data
+			// replicated to Elasticsearch.
+			'monitor.entity.replication' => true,
+			'monitor.entity.replication.cache_lifetime' => 3600,
 		],
 		'query' => [
 
 			// If for some reason no connection to the ES cluster could be
 			// established, use the SQLStore QueryEngine as fallback.
-			'fallback.no.connection' => false,
+			'fallback.no_connection' => false,
 
 			// @see https://www.elastic.co/guide/en/elasticsearch/reference/6.1/_profiling_queries.html
 			'profiling' => false,
@@ -2124,6 +2267,12 @@ return [
 			// During the debug output, display details about which description was
 			// when resolved in connection with a query
 			'debug.description.log' => true,
+
+			// #3698
+			// Restrict the length of an individual input value to avoid a potential
+			// "... "java.lang.IllegalArgumentException:input automaton is too
+			// large: 1001 ..."
+			'maximum.value.length' => 500,
 
 			// When `!...` is used make sure that the condition is only applied
 			// on entities where the property exists together with the negated

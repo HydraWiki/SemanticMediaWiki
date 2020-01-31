@@ -21,26 +21,31 @@ class InstallerTest extends \PHPUnit_Framework_TestCase {
 	private $testEnvironment;
 	private $tableSchemaManager;
 	private $tableBuilder;
-	private $tableIntegrityExaminer;
+	private $tableBuildExaminer;
+	private $SetupFile;
 
 	protected function setUp() {
 		parent::setUp();
 		$this->testEnvironment = new TestEnvironment();
 		$this->spyMessageReporter = MessageReporterFactory::getInstance()->newSpyMessageReporter();
 
-		$this->tableSchemaManager = $this->getMockBuilder( '\SMW\SQLStore\TableSchemaManager' )
+		$this->tableSchemaManager = $this->getMockBuilder( '\SMW\SQLStore\TableBuilder\TableSchemaManager' )
 			->disableOriginalConstructor()
 			->getMock();
 
-		$this->tableBuilder = $this->getMockBuilder( '\SMW\SQLStore\TableBuilder' )
+		$this->tableBuilder = $this->getMockBuilder( '\SMW\SQLStore\TableBuilder\TableBuilder' )
 			->disableOriginalConstructor()
 			->getMock();
 
-		$this->tableIntegrityExaminer = $this->getMockBuilder( '\SMW\SQLStore\TableIntegrityExaminer' )
+		$this->tableBuildExaminer = $this->getMockBuilder( '\SMW\SQLStore\TableBuilder\TableBuildExaminer' )
 			->disableOriginalConstructor()
 			->getMock();
 
 		$this->jobQueue = $this->getMockBuilder( '\SMW\MediaWiki\JobQueue' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$this->setupFile = $this->getMockBuilder( '\SMW\SetupFile' )
 			->disableOriginalConstructor()
 			->getMock();
 
@@ -51,7 +56,7 @@ class InstallerTest extends \PHPUnit_Framework_TestCase {
 
 		$this->assertInstanceOf(
 			Installer::class,
-			new Installer( $this->tableSchemaManager, $this->tableBuilder, $this->tableIntegrityExaminer )
+			new Installer( $this->tableSchemaManager, $this->tableBuilder, $this->tableBuildExaminer )
 		);
 	}
 
@@ -60,6 +65,10 @@ class InstallerTest extends \PHPUnit_Framework_TestCase {
 		$table = $this->getMockBuilder( '\SMW\SQLStore\TableBuilder\Table' )
 			->disableOriginalConstructor()
 			->getMock();
+
+		$this->tableBuildExaminer->expects( $this->atLeastOnce() )
+			->method( 'meetsMinimumRequirement' )
+			->will( $this->returnValue( true ) );
 
 		$this->tableSchemaManager->expects( $this->atLeastOnce() )
 			->method( 'getTables' )
@@ -73,25 +82,47 @@ class InstallerTest extends \PHPUnit_Framework_TestCase {
 		$tableBuilder->expects( $this->once() )
 			->method( 'create' );
 
-		$this->tableIntegrityExaminer->expects( $this->once() )
+		$this->tableBuildExaminer->expects( $this->once() )
 			->method( 'checkOnPostCreation' );
 
 		$instance = new Installer(
 			$this->tableSchemaManager,
 			$tableBuilder,
-			$this->tableIntegrityExaminer
+			$this->tableBuildExaminer
 		);
 
 		$instance->setMessageReporter( $this->spyMessageReporter );
-
-		$instance->setOptions(
-			[
-				Installer::OPT_SCHEMA_UPDATE => false
-			]
-		);
+		$instance->setSetupFile( $this->setupFile );
 
 		$this->assertTrue(
 			$instance->install()
+		);
+	}
+
+	public function testInstall_FailsMinimumRequirement() {
+
+		$this->tableBuildExaminer->expects( $this->once() )
+			->method( 'defineDatabaseRequirements' )
+			->will( $this->returnValue( [ 'type' => 'foo', 'latest_version' => 1, 'minimum_version' => 2 ] ) );
+
+		$this->tableBuildExaminer->expects( $this->once() )
+			->method( 'meetsMinimumRequirement' )
+			->will( $this->returnValue( false ) );
+
+		$instance = new Installer(
+			$this->tableSchemaManager,
+			$this->tableBuilder,
+			$this->tableBuildExaminer
+		);
+
+		$instance->setMessageReporter( $this->spyMessageReporter );
+		$instance->setSetupFile( $this->setupFile );
+
+		$instance->install();
+
+		$this->assertContains(
+			"The foo database version of 1 doesn't meet the minimum requirement of 2",
+			$this->spyMessageReporter->getMessagesAsString()
 		);
 	}
 
@@ -104,6 +135,10 @@ class InstallerTest extends \PHPUnit_Framework_TestCase {
 			->disableOriginalConstructor()
 			->getMock();
 
+		$this->tableBuildExaminer->expects( $this->atLeastOnce() )
+			->method( 'meetsMinimumRequirement' )
+			->will( $this->returnValue( true ) );
+
 		$this->tableSchemaManager->expects( $this->atLeastOnce() )
 			->method( 'getTables' )
 			->will( $this->returnValue( [ $table ] ) );
@@ -116,16 +151,18 @@ class InstallerTest extends \PHPUnit_Framework_TestCase {
 		$tableBuilder->expects( $this->once() )
 			->method( 'create' );
 
-		$this->tableIntegrityExaminer->expects( $this->once() )
+		$this->tableBuildExaminer->expects( $this->once() )
 			->method( 'checkOnPostCreation' );
 
 		$instance = new Installer(
 			$this->tableSchemaManager,
 			$tableBuilder,
-			$this->tableIntegrityExaminer
+			$this->tableBuildExaminer
 		);
 
 		$instance->setMessageReporter( $this->spyMessageReporter );
+		$instance->setSetupFile( $this->setupFile );
+
 		$instance->setOptions(
 			[
 				Installer::OPT_SUPPLEMENT_JOBS => true
@@ -141,6 +178,10 @@ class InstallerTest extends \PHPUnit_Framework_TestCase {
 			->disableOriginalConstructor()
 			->getMock();
 
+		$this->tableBuildExaminer->expects( $this->atLeastOnce() )
+			->method( 'meetsMinimumRequirement' )
+			->will( $this->returnValue( true ) );
+
 		$this->tableSchemaManager->expects( $this->atLeastOnce() )
 			->method( 'getTables' )
 			->will( $this->returnValue( [ $table ] ) );
@@ -153,10 +194,11 @@ class InstallerTest extends \PHPUnit_Framework_TestCase {
 		$instance = new Installer(
 			$this->tableSchemaManager,
 			$tableBuilder,
-			$this->tableIntegrityExaminer
+			$this->tableBuildExaminer
 		);
 
 		$instance->setMessageReporter( $this->spyMessageReporter );
+		$instance->setSetupFile( $this->setupFile );
 
 		$this->assertTrue(
 			$instance->install( false )
@@ -184,10 +226,11 @@ class InstallerTest extends \PHPUnit_Framework_TestCase {
 		$instance = new Installer(
 			$this->tableSchemaManager,
 			$tableBuilder,
-			$this->tableIntegrityExaminer
+			$this->tableBuildExaminer
 		);
 
 		$instance->setMessageReporter( $this->spyMessageReporter );
+		$instance->setSetupFile( $this->setupFile );
 
 		$this->assertTrue(
 			$instance->uninstall()
@@ -199,7 +242,7 @@ class InstallerTest extends \PHPUnit_Framework_TestCase {
 		$instance = new Installer(
 			$this->tableSchemaManager,
 			$this->tableBuilder,
-			$this->tableIntegrityExaminer
+			$this->tableBuildExaminer
 		);
 
 		$callback = function() use( $instance ) {
@@ -210,85 +253,6 @@ class InstallerTest extends \PHPUnit_Framework_TestCase {
 			'Foo',
 			$this->testEnvironment->outputFromCallbackExec( $callback )
 		);
-	}
-
-	public function testIsGoodSchema() {
-
-		$instance = new Installer(
-			$this->tableSchemaManager,
-			$this->tableBuilder,
-			$this->tableIntegrityExaminer
-		);
-
-		$this->assertInternalType(
-			'boolean',
-			$instance->isGoodSchema()
-		);
-	}
-
-	public function testGetUpgradeKey() {
-
-		$var1 = [
-			'smwgUpgradeKey' => '',
-			'smwgFixedProperties' => [ 'Foo', 'Bar' ],
-			'smwgPageSpecialProperties' => [ 'Foo', 'Bar' ]
-		];
-
-		$var2 = [
-			'smwgUpgradeKey' => '',
-			'smwgFixedProperties' => [ 'Bar', 'Foo' ],
-			'smwgPageSpecialProperties' => [ 'Bar', 'Foo' ]
-		];
-
-		$this->assertEquals(
-			Installer::getUpgradeKey( $var1 ),
-			Installer::getUpgradeKey( $var2 )
-		);
-	}
-
-	public function testGetUpgradeKey_SpecialFixedProperties() {
-
-		$var1 = [
-			'smwgUpgradeKey' => '',
-			'smwgFixedProperties' => [ 'Foo', 'Bar' ],
-			'smwgPageSpecialProperties' => [ 'Foo', 'Bar' ]
-		];
-
-		$var2 = [
-			'smwgUpgradeKey' => '',
-			'smwgFixedProperties' => [ 'Bar', 'Foo' ],
-			'smwgPageSpecialProperties' => [ 'Bar', '_MDAT' ]
-		];
-
-		$this->assertNotEquals(
-			Installer::getUpgradeKey( $var1 ),
-			Installer::getUpgradeKey( $var2 )
-		);
-	}
-
-	public function testSetUpgradeKey() {
-
-		$file = $this->getMockBuilder( '\SMW\Utils\File' )
-			->disableOriginalConstructor()
-			->getMock();
-
-		$file->expects( $this->once() )
-			->method( 'write' );
-
-		$instance = new Installer(
-			$this->tableSchemaManager,
-			$this->tableBuilder,
-			$this->tableIntegrityExaminer
-		);
-
-		$vars = [
-			'smwgIP' => '',
-			'smwgUpgradeKey' => '',
-			'smwgFixedProperties' => [],
-			'smwgPageSpecialProperties' => []
-		];
-
-		$instance->setUpgradeKey( $file, $vars, $this->spyMessageReporter );
 	}
 
 }

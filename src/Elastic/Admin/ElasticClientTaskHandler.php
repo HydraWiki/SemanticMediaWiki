@@ -5,11 +5,14 @@ namespace SMW\Elastic\Admin;
 use Html;
 use SMW\MediaWiki\Specials\Admin\OutputFormatter;
 use SMW\MediaWiki\Specials\Admin\TaskHandler;
+use SMW\MediaWiki\Specials\Admin\ActionableTask;
 use SMW\Message;
 use SMW\ApplicationFactory;
 use WebRequest;
 use SMW\Elastic\Indexer\ReplicationStatus;
 use SMW\Elastic\Connection\Client as ElasticClient;
+use SMW\Elastic\Config;
+use SMW\Utils\HtmlTabs;
 
 /**
  * @license GNU GPL v2+
@@ -17,7 +20,7 @@ use SMW\Elastic\Connection\Client as ElasticClient;
  *
  * @author mwjames
  */
-class ElasticClientTaskHandler extends TaskHandler {
+class ElasticClientTaskHandler extends TaskHandler implements ActionableTask {
 
 	/**
 	 * @var OutputFormatter
@@ -50,12 +53,12 @@ class ElasticClientTaskHandler extends TaskHandler {
 	}
 
 	/**
-	 * @since 3.0
+	 * @since 3.2
 	 *
 	 * {@inheritDoc}
 	 */
-	public function hasAction() {
-		return true;
+	public function getTask() : string {
+		return 'elastic';
 	}
 
 	/**
@@ -63,18 +66,23 @@ class ElasticClientTaskHandler extends TaskHandler {
 	 *
 	 * {@inheritDoc}
 	 */
-	public function isTaskFor( $task ) {
+	public function isTaskFor( string $action ) : bool {
 
 		// Root
 		$actions = [
-			'elastic'
+			$this->getTask()
 		];
 
 		foreach ( $this->taskHandlers as $taskHandler ) {
+
+			if ( !$taskHandler instanceof ActionableTask ) {
+				continue;
+			}
+
 			$actions[] = $taskHandler->getTask();
 		}
 
-		return in_array( $task, $actions );
+		return in_array( $action, $actions );
 	}
 
 	/**
@@ -84,18 +92,12 @@ class ElasticClientTaskHandler extends TaskHandler {
 	 */
 	public function getHtml() {
 
-		$connection = $this->getStore()->getConnection( 'elastic' );
-
-		if ( !$connection->ping() ) {
-			return '';
-		}
-
 		$link = $this->outputFormatter->createSpecialPageLink(
 			$this->msg( 'smw-admin-supplementary-elastic-title' ),
-			[ 'action' => 'elastic' ]
+			[ 'action' => $this->getTask() ]
 		);
 
-		return Html::rawElement(
+		$html = Html::rawElement(
 			'li',
 			[],
 			$this->msg(
@@ -105,6 +107,18 @@ class ElasticClientTaskHandler extends TaskHandler {
 				]
 			)
 		);
+
+		$html = Html::rawElement(
+			'h3',
+			[],
+			$this->msg( 'smw-admin-supplementary-elastic-section-subtitle' )
+		) . Html::rawElement(
+			'ul',
+			[],
+			$html
+		);
+
+		return $html;
 	}
 
 	/**
@@ -118,8 +132,8 @@ class ElasticClientTaskHandler extends TaskHandler {
 		$action = $webRequest->getText( 'action' );
 
 		if ( !$connection->ping() ) {
-			return $this->outputNoNodesAvailable();
-		} elseif ( $action === 'elastic' ) {
+			return $this->outputNoNodesAvailable( $connection );
+		} elseif ( $action === $this->getTask() ) {
 			$this->outputHead();
 		} else {
 			foreach ( $this->taskHandlers as $taskHandler ) {
@@ -137,14 +151,27 @@ class ElasticClientTaskHandler extends TaskHandler {
 		$this->outputInfo();
 	}
 
-	private function outputNoNodesAvailable() {
+	private function outputNoNodesAvailable( $connection ) {
 
 		$this->outputHead();
+		$config = $connection->getConfig();
 
-		$html = Html::element(
-			'div',
-			[ 'class' => 'smw-callout smw-callout-error' ],
-			'Elasticsearch has no active nodes available.'
+		$html = Html::rawElement(
+			'h3',
+			[ 'class' => 'smw-title' ],
+			$this->msg( [ 'smw-admin-supplementary-elastic-replication-header-title' ] )
+		) . Html::rawElement(
+			'p',
+			[],
+			$this->msg( [ 'smw-admin-supplementary-elastic-no-connection' ], Message::PARSE )
+		). Html::rawElement(
+			'h4',
+			[ 'class' => 'smw-title' ],
+			$this->msg( [ 'smw-admin-supplementary-elastic-endpoints' ] )
+		) . Html::rawElement(
+			'pre',
+			[],
+			json_encode( $config->safeGet( Config::ELASTIC_ENDPOINTS, [] ), JSON_PRETTY_PRINT )
 		);
 
 		$this->outputFormatter->addHTML( $html );
@@ -177,16 +204,25 @@ class ElasticClientTaskHandler extends TaskHandler {
 			$this->outputFormatter->encodeAsJson( $connection->info() )
 		);
 
-		$replicationStatus = new ReplicationStatus(
+		$applicationFactory = ApplicationFactory::getInstance();
+		$elasticFactory = $applicationFactory->singleton( 'ElasticFactory' );
+
+		$replicationStatus = $elasticFactory->newReplicationStatus(
 			$connection
 		);
 
-		$jobQueue = ApplicationFactory::getInstance()->getJobQueue();
+		$jobQueue = $applicationFactory->getJobQueue();
 
 		$html .= Html::element(
 			'li',
 			[],
 			$this->msg( [ 'smw-admin-supplementary-elastic-status-last-active-replication', $replicationStatus->get( 'last_update' ) ] )
+		);
+
+		$html .= Html::element(
+			'li',
+			[],
+			$this->msg( [ 'smw-admin-supplementary-elastic-status-replication-monitoring', $connection->getConfig()->dotGet( 'indexer.monitor.entity.replication' ) ? '✓' : '✗' ] )
 		);
 
 		$html .= Html::rawElement(
@@ -216,24 +252,36 @@ class ElasticClientTaskHandler extends TaskHandler {
 			$this->msg( [ 'smw-admin-supplementary-elastic-status-refresh-interval', $replicationStatus->get( 'refresh_interval' ) ] )
 		);
 
-		$this->outputFormatter->addHTML(
-			Html::element( 'h3', [], $this->msg(
-				'smw-admin-supplementary-elastic-status-replication' )
-			) . Html::rawElement( 'ul', [], $html )
-		);
-
 		$list = '';
 
 		foreach ( $this->taskHandlers as $taskHandler ) {
+
+			if ( !$taskHandler instanceof ActionableTask ) {
+				continue;
+			}
+
 			$list .= $taskHandler->getHtml();
 		}
 
-		$this->outputFormatter->addHTML(
-			Html::element( 'h3', [], $this->msg( 'smw-admin-supplementary-elastic-functions' ) )
+		$htmlTabs = new HtmlTabs();
+		$htmlTabs->setGroup( 'elastic' );
+
+		$htmlTabs->tab( 'status', $this->msg( 'smw-admin-supplementary-elastic-status-replication' ) );
+		$htmlTabs->content( 'status', Html::rawElement( 'ul', [ 'style' => 'margin-top:10px;' ], $html ) );
+
+		$htmlTabs->tab( 'tasks', $this->msg( 'smw-admin-supplementary-elastic-functions' ) );
+		$htmlTabs->content( 'tasks', Html::rawElement( 'ul', [ 'style' => 'margin-top:10px;' ], $list ) );
+
+		$html = $htmlTabs->buildHTML( [ 'class' => 'elastic' ] );
+
+		$this->outputFormatter->addInlineStyle(
+			'.elastic #tab-status:checked ~ #tab-content-status,' .
+			'.elastic #tab-tasks:checked ~ #tab-content-tasks {' .
+			'display: block;}'
 		);
 
 		$this->outputFormatter->addHTML(
-			Html::rawElement( 'ul', [], $list )
+			$html
 		);
 	}
 

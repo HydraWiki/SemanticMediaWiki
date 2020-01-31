@@ -6,11 +6,12 @@ use SMW\ApplicationFactory;
 use SMW\Site;
 use SMW\SQLStore\ChangeOp\ChangeOp;
 use SMW\SQLStore\QueryDependency\DependencyLinksTableUpdater;
-use SMW\SQLStore\QueryDependency\DependencyLinksUpdateJournal;
 use SMW\SQLStore\QueryDependency\EntityIdListRelevanceDetectionFilter;
 use SMW\SQLStore\QueryDependency\QueryDependencyLinksStore;
 use SMW\SQLStore\QueryDependency\QueryReferenceBacklinks;
 use SMW\SQLStore\QueryDependency\QueryResultDependencyListResolver;
+use SMW\SQLStore\QueryDependency\QueryLinksTableDisposer;
+use SMW\SQLStore\QueryDependency\DependencyLinksValidator;
 use SMW\Store;
 
 /**
@@ -24,24 +25,27 @@ use SMW\Store;
 class QueryDependencyLinksStoreFactory {
 
 	/**
-	 * @since 3.0
+	 * @since 3.1
 	 *
-	 * @return DependencyLinksUpdateJournal
+	 * @return DependencyLinksValidator
 	 */
-	public function newDependencyLinksUpdateJournal() {
+	public function newDependencyLinksValidator() {
 
 		$applicationFactory = ApplicationFactory::getInstance();
 
-		$dependencyLinksUpdateJournal = new DependencyLinksUpdateJournal(
-			$applicationFactory->getCache(),
-			$applicationFactory->newDeferredCallableUpdate()
+		$dependencyLinksValidator = new DependencyLinksValidator(
+			$applicationFactory->getStore()
 		);
 
-		$dependencyLinksUpdateJournal->setLogger(
+		$dependencyLinksValidator->setCheckDependencies(
+			$applicationFactory->getSettings()->get( 'smwgEnabledQueryDependencyLinksStore' )
+		);
+
+		$dependencyLinksValidator->setLogger(
 			$applicationFactory->getMediaWikiLogger()
 		);
 
-		return $dependencyLinksUpdateJournal;
+		return $dependencyLinksValidator;
 	}
 
 	/**
@@ -105,38 +109,6 @@ class QueryDependencyLinksStoreFactory {
 	}
 
 	/**
-	 * @since 2.4
-	 *
-	 * @param Store $store
-	 * @param ChangeOp $changeOp
-	 *
-	 * @return EntityIdListRelevanceDetectionFilter
-	 */
-	public function newEntityIdListRelevanceDetectionFilter( Store $store, ChangeOp $changeOp ) {
-
-		$settings = ApplicationFactory::getInstance()->getSettings();
-
-		$entityIdListRelevanceDetectionFilter = new EntityIdListRelevanceDetectionFilter(
-			$store,
-			$changeOp
-		);
-
-		$entityIdListRelevanceDetectionFilter->setLogger(
-			ApplicationFactory::getInstance()->getMediaWikiLogger()
-		);
-
-		$entityIdListRelevanceDetectionFilter->setPropertyExemptionList(
-			$settings->get( 'smwgQueryDependencyPropertyExemptionList' )
-		);
-
-		$entityIdListRelevanceDetectionFilter->setAffiliatePropertyDetectionList(
-			$settings->get( 'smwgQueryDependencyAffiliatePropertyDetectionList' )
-		);
-
-		return $entityIdListRelevanceDetectionFilter;
-	}
-
-	/**
 	 * @since 2.5
 	 *
 	 * @param Store $store
@@ -145,6 +117,25 @@ class QueryDependencyLinksStoreFactory {
 	 */
 	public function newQueryReferenceBacklinks( Store $store ) {
 		return new QueryReferenceBacklinks( $this->newQueryDependencyLinksStore( $store ) );
+	}
+
+	/**
+	 * @since 3.0
+	 *
+	 * @param Store $store
+	 *
+	 * @return QueryLinksTableDisposer
+	 */
+	public function newQueryLinksTableDisposer( Store $store ) {
+
+		$applicationFactory = ApplicationFactory::getInstance();
+
+		$queryLinksTableDisposer = new QueryLinksTableDisposer(
+			$store,
+			$applicationFactory->getIteratorFactory()
+		);
+
+		return $queryLinksTableDisposer;
 	}
 
 }

@@ -4,8 +4,9 @@ namespace SMW\SQLStore;
 
 use SMW\ApplicationFactory;
 use SMW\DIWikiPage;
-use SMW\EventHandler;
+use Onoi\EventDispatcher\EventDispatcherAwareTrait;
 use SMW\Iterators\ResultIterator;
+use SMW\RequestOptions;
 
 /**
  * @private
@@ -20,6 +21,8 @@ use SMW\Iterators\ResultIterator;
  * @author mwjames
  */
 class PropertyTableIdReferenceDisposer {
+
+	use EventDispatcherAwareTrait;
 
 	/**
 	 * @var SQLStore
@@ -104,15 +107,27 @@ class PropertyTableIdReferenceDisposer {
 	/**
 	 * @since 2.5
 	 *
+	 * @param RequestOptions|null $requestOptions
+	 *
 	 * @return ResultIterator
 	 */
-	public function newOutdatedEntitiesResultIterator() {
+	public function newOutdatedEntitiesResultIterator( RequestOptions $requestOptions = null ) {
+
+		$options = [];
+
+		if ( $requestOptions !== null ) {
+			$options = [
+				'LIMIT'  => $requestOptions->getLimit(),
+				'OFFSET' => $requestOptions->getOffset()
+			];
+		}
 
 		$res = $this->connection->select(
 			SQLStore::ID_TABLE,
 			[ 'smw_id' ],
 			[ 'smw_iw' => SMW_SQL3_SMWDELETEIW ],
-			__METHOD__
+			__METHOD__,
+			$options
 		);
 
 		return new ResultIterator( $res );
@@ -222,6 +237,12 @@ class PropertyTableIdReferenceDisposer {
 		}
 
 		$this->connection->delete(
+			SQLStore::ID_AUXILIARY_TABLE,
+			[ 'smw_id' => $id ],
+			__METHOD__
+		);
+
+		$this->connection->delete(
 			SQLStore::PROPERTY_STATISTICS_TABLE,
 			[ 'p_id' => $id ],
 			__METHOD__
@@ -242,11 +263,9 @@ class PropertyTableIdReferenceDisposer {
 		// Avoid Query: DELETE FROM `smw_ft_search` WHERE s_id = '92575'
 		// Error: 126 Incorrect key file for table '.\mw@002d25@002d01\smw_ft_search.MYI'; ...
 		try {
-			$this->connection->delete(
-				SQLStore::FT_SEARCH_TABLE,
-				[ 's_id' => $id ],
-				__METHOD__
-			);
+			if ( $this->connection->tableExists( SQLStore::FT_SEARCH_TABLE ) ) {
+				$this->connection->delete( SQLStore::FT_SEARCH_TABLE, [ 's_id' => $id ], __METHOD__ );
+			}
 		} catch ( \DBError $e ) {
 			ApplicationFactory::getInstance()->getMediaWikiLogger()->info( __METHOD__ . ' reported: ' . $e->getMessage() );
 		}
@@ -264,21 +283,14 @@ class PropertyTableIdReferenceDisposer {
 			return;
 		}
 
-		$eventHandler = EventHandler::getInstance();
+		$context = [
+			'context' => 'PropertyTableIdReferenceDisposal',
+			'title' => $subject->getTitle(),
+			'subject' => $subject
+		];
 
-		$dispatchContext = $eventHandler->newDispatchContext();
-		$dispatchContext->set( 'subject', $subject );
-		$dispatchContext->set( 'context', 'PropertyTableIdReferenceDisposal' );
-
-		$eventHandler->getEventDispatcher()->dispatch(
-			'cached.prefetcher.reset',
-			$dispatchContext
-		);
-
-		$eventHandler->getEventDispatcher()->dispatch(
-			'factbox.cache.delete',
-			$dispatchContext
-		);
+		$this->eventDispatcher->dispatch( 'InvalidateResultCache', $context );
+		$this->eventDispatcher->dispatch( 'InvalidateEntityCache', $context );
 	}
 
 }

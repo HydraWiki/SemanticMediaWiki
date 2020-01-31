@@ -20,6 +20,12 @@ class SQLiteTableBuilder extends TableBuilder {
 	 */
 	public function getStandardFieldType( $fieldType ) {
 
+		// SQLite has no native support for an ENUM type
+		// https://stackoverflow.com/questions/5299267/how-to-create-enum-type-in-sqlite
+		if ( is_array( $fieldType ) && $fieldType[0] === FieldType::TYPE_ENUM ) {
+			unset( $fieldType[1] );
+		}
+
 		$charLongLength = FieldType::CHAR_LONG_LENGTH;
 
 		$fieldTypes = [
@@ -48,7 +54,11 @@ class SQLiteTableBuilder extends TableBuilder {
 			'char_nocase'      => 'VARCHAR(255) NOT NULL COLLATE NOCASE',
 			'char_long_nocase' => "VARCHAR($charLongLength) NOT NULL COLLATE NOCASE",
 			'usage_count'      => 'INT(8)',
-			'integer_unsigned' => 'INTEGER'
+			'integer_unsigned' => 'INTEGER',
+			'timestamp' => 'VARBINARY(14)',
+
+			// SQLite has not native support for an ENUM type
+			'enum' => 'TEXT'
 		];
 
 		return FieldType::mapType( $fieldType, $fieldTypes );
@@ -338,7 +348,7 @@ class SQLiteTableBuilder extends TableBuilder {
 		$tableName = $this->connection->tableName( $tableName );
 		$indexName = "{$tableName}_index{$indexName}";
 
-		$this->reportMessage( "   ... creating new index $columns ..." );
+		$this->reportMessage( "   ... creating new $indexType $columns ..." );
 		$this->connection->query( "CREATE $indexType $indexName ON $tableName ($columns)", __METHOD__ );
 		$this->reportMessage( "done.\n" );
 	}

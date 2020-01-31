@@ -72,6 +72,15 @@ class StubSemanticData extends SemanticData {
 	}
 
 	/**
+	 * @since 3.2
+	 *
+	 * @return boolean
+	 */
+	public function isStub() : bool {
+		return true;
+	}
+
+	/**
 	 * Required to support php-serialization
 	 *
 	 * @since 2.3
@@ -110,7 +119,18 @@ class StubSemanticData extends SemanticData {
 		$result->mHasVisibleProps = $semanticData->mHasVisibleProps;
 		$result->mHasVisibleSpecs = $semanticData->mHasVisibleSpecs;
 		$result->stubObject = $semanticData->stubObject;
+		$result->sequenceMap = $semanticData->sequenceMap;
 		return $result;
+	}
+
+	/**
+	 * @since 3.1
+	 *
+	 * @param integer $sid
+	 * @param [] $sequenceMap
+	 */
+	public function setSequenceMap( $sid, $sequenceMap ) {
+		$this->sequenceMap = is_array( $sequenceMap ) ? $sequenceMap : [];
 	}
 
 	/**
@@ -148,32 +168,14 @@ class StubSemanticData extends SemanticData {
 	 * @return array of DataItem
 	 */
 	public function getPropertyValues( DIProperty $property ) {
-		if ( $property->isInverse() ) { // we never have any data for inverses
+
+		// we never have any data for inverses
+		if ( $property->isInverse() ) {
 			return [];
 		}
 
 		if ( array_key_exists( $property->getKey(), $this->mStubPropVals ) ) {
-			// Not catching exception here; the
-			$this->unstubProperty( $property->getKey(), $property );
-			$propertyTypeId = $property->findPropertyTypeID();
-			$propertyDiId = DataTypeRegistry::getInstance()->getDataItemId( $propertyTypeId );
-
-			foreach ( $this->mStubPropVals[$property->getKey()] as $dbkeys ) {
-				try {
-					$diHandler = $this->store->getDataItemHandlerForDIType( $propertyDiId );
-					$di = $diHandler->dataItemFromDBKeys( $dbkeys );
-
-					if ( $this->mNoDuplicates ) {
-						$this->mPropVals[$property->getKey()][$di->getHash()] = $di;
-					} else {
-						$this->mPropVals[$property->getKey()][] = $di;
-					}
-				} catch ( DataItemHandlerException $e ) {
-					// ignore data
-				}
-			}
-
-			unset( $this->mStubPropVals[$property->getKey()] );
+			$this->unstubPropertyValues( $property );
 		}
 
 		return parent::getPropertyValues( $property );
@@ -198,7 +200,11 @@ class StubSemanticData extends SemanticData {
 		foreach ( $this->getProperties() as $property ) {
 
 			// #619 Do not resolve subobjects for redirects
-			if ( !DataTypeRegistry::getInstance()->isSubDataType( $property->findPropertyTypeID() ) || $this->isRedirect() ) {
+			if ( !DataTypeRegistry::getInstance()->isSubDataType( $property->findPropertyTypeID() ) ) {
+				continue;
+			}
+
+			if ( $this->isRedirect() ) {
 				continue;
 			}
 
@@ -366,11 +372,51 @@ class StubSemanticData extends SemanticData {
 		return $this->store->getObjectIds()->isRedirect( $this->mSubject );
 	}
 
+	private function unstubPropertyValues( DIProperty $property ) {
+
+		// Not catching exception here; the
+		$this->unstubProperty( $property->getKey(), $property );
+		$propertyTypeId = $property->findPropertyTypeID();
+
+		$propertyDiId = DataTypeRegistry::getInstance()->getDataItemId( $propertyTypeId );
+		$diHandler = $this->store->getDataItemHandlerForDIType( $propertyDiId );
+
+		foreach ( $this->mStubPropVals[$property->getKey()] as $dbkeys ) {
+
+			try {
+				$dataItem = $diHandler->dataItemFromDBKeys( $dbkeys );
+			} catch ( DataItemHandlerException $e ) {
+				continue;
+			}
+
+			if ( $this->mNoDuplicates ) {
+				$this->mPropVals[$property->getKey()][md5( $dataItem->getHash() )] = $dataItem;
+			} else {
+				$this->mPropVals[$property->getKey()][] = $dataItem;
+			}
+		}
+
+		unset( $this->mStubPropVals[$property->getKey()] );
+	}
+
 	private function initSubSemanticData( DIProperty $property ) {
 		foreach ( $this->getPropertyValues( $property ) as $value ) {
 
 			if ( !$value instanceof DIWikiPage || $value->getSubobjectName() === '' ) {
 				continue;
+			}
+
+			// Ensure to hold a DBKEY reference to avoid something like:
+			// "... SMW\Exception\SubSemanticDataException from line 206 of
+			// SubSemanticData.php: Data for a subobject of Display_precision_of
+			// cannot be added to _PREC ..."
+			if ( $value->getNamespace() === SMW_NS_PROPERTY ) {
+				$value = new DIWikiPage(
+					$this->mSubject->getDBKey(),
+					SMW_NS_PROPERTY,
+					$value->getInterwiki(),
+					$value->getSubobjectName()
+				);
 			}
 
 			if ( $this->hasSubSemanticData( $value->getSubobjectName() ) ) {

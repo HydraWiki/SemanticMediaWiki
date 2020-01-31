@@ -11,7 +11,9 @@ use Psr\Log\LoggerAwareTrait;
 use Psr\Log\NullLogger;
 use SMW\Elastic\Exception\InvalidJSONException;
 use SMW\Elastic\Exception\ReplicationException;
+use SMW\Elastic\Config;
 use SMW\Options;
+use SMW\Site;
 
 /**
  * Reduced interface to the Elasticsearch client class.
@@ -24,13 +26,6 @@ use SMW\Options;
 class Client {
 
 	use LoggerAwareTrait;
-
-	/**
-	 * Identifies the cache namespace
-	 */
-	const CACHE_NAMESPACE = 'smw:elastic';
-
-	const CACHE_CHECK_TTL = 3600;
 
 	/**
 	 * @see https://www.elastic.co/blog/index-vs-type
@@ -58,9 +53,9 @@ class Client {
 	private static $ping;
 
 	/**
-	 * @var Cache
+	 * @var LockManager
 	 */
-	private $cache;
+	private $lockManager;
 
 	/**
 	 * @var Options
@@ -68,9 +63,9 @@ class Client {
 	private $options;
 
 	/**
-	 * @var boolean
+	 * @var string
 	 */
-	private $inTest = false;
+	private $wikiid;
 
 	/**
 	 * @var boolean
@@ -81,24 +76,22 @@ class Client {
 	 * @since 3.0
 	 *
 	 * @param ElasticClient $client
-	 * @param Cache|null $cache
+	 * @param LockManager $lockManager
 	 * @param Options|null $options
 	 */
-	public function __construct( ElasticClient $client, Cache $cache = null, Options $options = null ) {
+	public function __construct( ElasticClient $client, LockManager $lockManager, Config $options = null ) {
 		$this->client = $client;
-		$this->cache = $cache;
+		$this->lockManager = $lockManager;
 		$this->options = $options;
-		$this->inTest = defined( 'MW_PHPUNIT_TEST' );
-
-		if ( $this->cache === null ) {
-			$this->cache = new NullCache();
-		}
 
 		if ( $this->options === null ) {
 			$this->options = new Options();
 		}
 
 		$this->logger = new NullLogger();
+
+		// #3938
+		$this->wikiid = strtolower( Site::id() );
 	}
 
 	/**
@@ -136,13 +129,7 @@ class Client {
 	 * @return string
 	 */
 	public function getIndexName( $type ) {
-		static $indices = [];
-
-		if ( !isset( $indices[$type] ) ) {
-			$indices[$type] = "smw-$type-" . wfWikiID();
-		}
-
-		return $indices[$type];
+		return "smw-$type-" . $this->wikiid;
 	}
 
 	/**
@@ -201,7 +188,9 @@ class Client {
 
 		$info = $this->info();
 
-		if ( $this->options->safeGet( 'elastic.enabled' ) && isset( $info['version']['number'] ) ) {
+		if (
+			$this->options->isDefaultStore() &&
+			isset( $info['version']['number'] ) ) {
 			return $info['version']['number'];
 		}
 
@@ -374,7 +363,7 @@ class Client {
 			'method' => __METHOD__,
 			'role' => 'user',
 			'index' => $index,
-			'reponse' => json_encode( $response )
+			'reponse' => $response
 		];
 
 		$this->logger->info( 'Created index {index} with: {reponse}', $context );
@@ -401,22 +390,11 @@ class Client {
 			$response = $e->getMessage();
 		}
 
-		$key = smwfCacheKey(
-			self::CACHE_NAMESPACE,
-			[
-				$index,
-				// A modified file causes a new cache key!
-				$this->getIndexDefFileModificationTimeByType( $type )
-			]
-		);
-
-		$this->cache->delete( $key );
-
 		$context = [
 			'method' => __METHOD__,
 			'role' => 'user',
 			'index' => $index,
-			'reponse' => json_encode( $response )
+			'reponse' => $response
 		];
 
 		$this->logger->info( 'Deleted index {index} with: {reponse}', $context );
@@ -529,7 +507,7 @@ class Client {
 	 */
 	public function quick_ping( $timeout = 2 ) {
 
-		$hosts = $this->options->get( 'endpoints' );
+		$hosts = $this->options->get( Config::ELASTIC_ENDPOINTS );
 
 		foreach ( $hosts as $host ) {
 
@@ -604,11 +582,11 @@ class Client {
 		try {
 			$context['response'] = $this->client->update( $params );
 		} catch( Exception $e ) {
-			$context['exception'] = $e->getMessage();
-			$this->logger->info( 'Updated failed for document {id} with: {exception}, DOC: {doc}', $context );
+			$context['response'] = $e->getMessage();
+			$this->logger->info( 'Updated failed for document {id} with: {response}, DOC: {doc}', $context );
 		}
 
-		return json_encode( $context['response'] );
+		return $context['response'];
 	}
 
 	/**
@@ -632,11 +610,11 @@ class Client {
 		try {
 			$context['response'] = $this->client->index( $params );
 		} catch( Exception $e ) {
-			$context['exception'] = $e->getMessage();
-			$this->logger->info( 'Index failed for document {id} with: {exception}', $context );
+			$context['response'] = $e->getMessage();
+			$this->logger->info( 'Index failed for document {id} with: {response}', $context );
 		}
 
-		return json_encode( $context['response'] );
+		return $context['response'];
 	}
 
 	/**
@@ -656,10 +634,6 @@ class Client {
 			'role' => 'production',
 			'response' => ''
 		];
-
-		if ( $this->inTest ) {
-			$params = $params + [ 'refresh' => true ];
-		}
 
 		try {
 			$response = $this->client->bulk( $params );
@@ -690,10 +664,11 @@ class Client {
 		} catch( ReplicationException $e ) {
 			throw new ReplicationException( $e->getMessage() );
 		} catch( Exception $e ) {
-			$this->logger->info( 'Bulk update failed with' .  $e->getMessage(), $context );
+			$context['response'] = $e->getMessage();
+			$this->logger->info( 'Bulk update failed with {response}', $context );
 		}
 
-		return json_encode( $context['response'] );
+		return $context['response'];
 	}
 
 	/**
@@ -713,12 +688,6 @@ class Client {
 
 		$results = [];
 		$time = -microtime( true );
-
-		// https://discuss.elastic.co/t/es-5-2-refresh-interval-doesnt-work-if-set-to-0/79248/2
-		// Make sure the replication/index lag doesn't hinder the search
-		if ( $this->inTest ) {
-			$this->client->indices()->refresh( [ 'index' => $params['index'] ] );
-		}
 
 		// ... "_source", "from", "profile", "query", "size", "sort" are not valid parameters.
 		unset( $params['body']['sort'] );
@@ -766,12 +735,6 @@ class Client {
 
 		$time = -microtime( true );
 
-		// https://discuss.elastic.co/t/es-5-2-refresh-interval-doesnt-work-if-set-to-0/79248/2
-		// Make sure the replication/index lag doesn't hinder the search
-		if ( $this->inTest ) {
-			$this->client->indices()->refresh( [ 'index' => $params['index'] ] );
-		}
-
 		try {
 			$results = $this->client->search( $params );
 		} catch ( NoNodesAvailableException $e ) {
@@ -812,13 +775,23 @@ class Client {
 			return [];
 		}
 
-		// https://discuss.elastic.co/t/es-5-2-refresh-interval-doesnt-work-if-set-to-0/79248/2
-		// Make sure the replication/index lag doesn't hinder the search
-		if ( $this->inTest ) {
-			$this->client->indices()->refresh( [ 'index' => $params['index'] ] );
-		}
-
 		return $this->client->explain( $params );
+	}
+
+	/**
+	 * @since 3.1
+	 *
+	 * @return boolean
+	 */
+	public function hasMaintenanceLock() {
+		return $this->lockManager->hasMaintenanceLock();
+	}
+
+	/**
+	 * @since 3.1
+	 */
+	public function setMaintenanceLock() {
+		$this->lockManager->setMaintenanceLock();
 	}
 
 	/**
@@ -828,13 +801,7 @@ class Client {
 	 * @param string $version
 	 */
 	public function setLock( $type, $version ) {
-
-		$key = smwfCacheKey(
-			self::CACHE_NAMESPACE,
-			[ 'lock', $type ]
-		);
-
-		$this->cache->save( $key, $version );
+		$this->lockManager->setLock( $type, $version );
 	}
 
 	/**
@@ -845,13 +812,7 @@ class Client {
 	 * @return boolean
 	 */
 	public function hasLock( $type ) {
-
-		$key = smwfCacheKey(
-			self::CACHE_NAMESPACE,
-			[ 'lock', $type ]
-		);
-
-		return $this->cache->fetch( $key ) !== false;
+		return $this->lockManager->hasLock( $type );
 	}
 
 	/**
@@ -862,13 +823,7 @@ class Client {
 	 * @return mixed
 	 */
 	public function getLock( $type ) {
-
-		$key = smwfCacheKey(
-			self::CACHE_NAMESPACE,
-			[ 'lock', $type ]
-		);
-
-		return $this->cache->fetch( $key );
+		return $this->lockManager->getLock( $type );
 	}
 
 	/**
@@ -877,13 +832,7 @@ class Client {
 	 * @param string $type
 	 */
 	public function releaseLock( $type ) {
-
-		$key = smwfCacheKey(
-			self::CACHE_NAMESPACE,
-			[ 'lock', $type ]
-		);
-
-		$this->cache->delete( $key );
+		$this->lockManager->releaseLock( $type );
 	}
 
 }

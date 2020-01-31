@@ -6,6 +6,10 @@ use OutputPage;
 use Skin;
 use SpecialPage;
 use Title;
+use SMW\Message;
+use Html;
+use SMW\MediaWiki\HookListener;
+use SMW\OptionsAwareTrait;
 
 /**
  * BeforePageDisplay hook which allows last minute changes to the
@@ -18,7 +22,34 @@ use Title;
  *
  * @author mwjames
  */
-class BeforePageDisplay extends HookHandler {
+class BeforePageDisplay implements HookListener {
+
+	use OptionsAwareTrait;
+
+	/**
+	 * @since 3.1
+	 *
+	 * @param OutputPage $outputPage
+	 */
+	public function informAboutExtensionAvailability( OutputPage $outputPage ) {
+
+		if ( $this->getOption( 'SMW_EXTENSION_LOADED' ) ) {
+			return;
+		}
+
+		$title = $outputPage->getTitle();
+
+		if ( $title === null || !$title->isSpecial( 'Version' ) ) {
+			return;
+		}
+
+		$outputPage->prependHTML(
+			'<div class="errorbox" style="display:block;">Semantic MediaWiki '.
+			'was installed but not enabled on this wiki. Please consult the ' .
+			'<a href="https://www.semantic-mediawiki.org/wiki/Extension_registration">help page</a> for '.
+			'instructions and further assistances.</div>'
+		);
+	}
 
 	/**
 	 * @since 1.9
@@ -41,12 +72,21 @@ class BeforePageDisplay extends HookHandler {
 			]
 		);
 
-		// Add style resources to avoid unstyled content
-		$outputPage->addModules( 'ext.smw.style' );
+		if ( $title->getNamespace() === NS_SPECIAL ) {
+			$outputPage->addModuleStyles(
+				[
+					'ext.smw.special.styles'
+				]
+			);
+		}
 
 		// #2726
 		if ( $user->getOption( 'smw-prefs-general-options-suggester-textinput' ) ) {
 			$outputPage->addModules( 'ext.smw.suggester.textInput' );
+		}
+
+		if ( $this->getOption( 'incomplete_tasks', [] ) !== [] ) {
+			$outputPage->prependHTML( $this->createIncompleteSetupTaskNotification( $title ) );
 		}
 
 		// Add export link to the head
@@ -65,6 +105,47 @@ class BeforePageDisplay extends HookHandler {
 		}
 
 		return true;
+	}
+
+	private function createIncompleteSetupTaskNotification( $title ) {
+
+		$disallowSpecialPages = [
+			'Userlogin',
+			'PendingTaskList',
+			'CreateAccount'
+		];
+
+		if ( $title->isSpecialPage() ) {
+			foreach ( $disallowSpecialPages as $specialPage ) {
+				if ( $title->isSpecial( $specialPage ) ) {
+					return '';
+				}
+			}
+		}
+
+		$is_upgrade = $this->getOption( 'is_upgrade' ) !== null ? 2 : 1;
+		$count = count( $this->getOption( 'incomplete_tasks' ) );
+
+		return Html::rawElement(
+			'div',
+			[
+				'class' => 'smw-callout smw-callout-error plainlinks'
+			],
+			Html::rawElement(
+				'div',
+				[
+					'style' => 'font-size: 10px;text-align: right;margin-top: 5px;margin-bottom: -5px; float:right;'
+				],
+				Message::get( [ 'smw-install-incomplete-intro-note' ], Message::PARSE, Message::USER_LANGUAGE )
+			) . Html::rawElement(
+				'div',
+				[
+					'class' => 'title'
+				],
+				Message::get( 'smw-title' )
+			) .
+			Message::get( [ 'smw-install-incomplete-intro', $is_upgrade, $count ], Message::PARSE, Message::USER_LANGUAGE )
+		);
 	}
 
 }

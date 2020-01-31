@@ -23,11 +23,11 @@ class SiteTest extends \PHPUnit_Framework_TestCase {
 		);
 	}
 
-	public function testIsBlocked() {
+	public function testIsReady() {
 
 		$this->assertInternalType(
 			'boolean',
-			Site::isBlocked()
+			Site::isReady()
 		);
 	}
 
@@ -68,6 +68,14 @@ class SiteTest extends \PHPUnit_Framework_TestCase {
 		$this->assertInternalType(
 			'boolean',
 			Site::isCapitalLinks()
+		);
+	}
+
+	public function testGetCacheExpireTime() {
+
+		$this->assertInternalType(
+			'integer',
+			Site::getCacheExpireTime( 'parser' )
 		);
 	}
 

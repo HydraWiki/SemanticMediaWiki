@@ -97,22 +97,23 @@ class AllowsListConstraintValueValidator implements ConstraintValueValidator {
 		);
 
 
-		if ( !$isAllowed ) {
-			foreach ( $allowedListValues as $dataItem ) {
-				$list = $this->allowsListValueParser->parse( $dataItem->getString() );
-
-				// Combine different lists into one
-				if ( is_array( $list ) ) {
-					$allowedValues = array_merge( $allowedValues, $list );
-				}
-			}
-
-			// On assignments like [Foo => Foo] (* Foo) or [Foo => Bar] (* Foo|Bar)
-			// use the key as comparison entity
-			$allowedValues = array_keys( $allowedValues );
-		} else {
+		if ( $isAllowed ) {
 			return;
+
 		}
+
+		foreach ( $allowedListValues as $dataItem ) {
+			$list = $this->allowsListValueParser->parse( $dataItem->getString() );
+
+			// Combine different lists into one
+			if ( is_array( $list ) ) {
+				$allowedValues = array_merge( $allowedValues, $list );
+			}
+		}
+
+		// On assignments like [Foo => Foo] (* Foo) or [Foo => Bar] (* Foo|Bar)
+		// use the key as comparison entity
+		$allowedValues = array_keys( $allowedValues );
 
 		$isAllowed = $this->checkConstraintViolation(
 			$dataValue,
@@ -158,6 +159,12 @@ class AllowsListConstraintValueValidator implements ConstraintValueValidator {
 		$testDataValue = ApplicationFactory::getInstance()->getDataValueFactory()->newTypeIDValue(
 			$dataValue->getTypeID()
 		);
+
+		// Ensure that the validation instance uses the same field properties
+		// as defined by the original DataValue
+		if ( $dataValue instanceof \SMW\DataValues\AbstractMultiValue ) {
+			$testDataValue->setFieldProperties( $dataValue->getPropertyDataItems() );
+		}
 
 		$isAllowed = false;
 
@@ -221,7 +228,7 @@ class AllowsListConstraintValueValidator implements ConstraintValueValidator {
 		$v = $allowedValue->getString();
 
 		// If a previous range comparison failed then bail-out!
-		if ( $v{0} === $exp && ( $range === null || $range ) ) {
+		if ( $v[0] === $exp && ( $range === null || $range ) ) {
 			$v = intval( trim( substr( $v, 1 ) ) );
 
 			if ( $exp === '>' && $value > $v ) {

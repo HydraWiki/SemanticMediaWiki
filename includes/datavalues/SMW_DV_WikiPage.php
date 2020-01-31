@@ -4,6 +4,7 @@ use SMW\ApplicationFactory;
 use SMW\DIProperty;
 use SMW\Localizer;
 use SMW\Message;
+use SMW\MediaWiki\Pipetrick;
 use SMW\Utils\Image;
 
 /**
@@ -39,9 +40,19 @@ class SMWWikiPageValue extends SMWDataValue {
 	const NO_TEXT_TRANSFORMATION = 'no.text.transformation';
 
 	/**
+	 * Whether images should be displayed as media or simple link.
+	 */
+	const NO_IMAGE = 'no.image';
+
+	/**
 	 * Whether to use the short form or not.
 	 */
-	const SHORT_FORM = 'short.form';
+	const SHORT_FORM = 'form/short';
+
+	/**
+	 * Whether to use the prefixed form or not.
+	 */
+	const PREFIXED_FORM = 'form/prefixed';
 
 	/**
 	 * Fragment text for user-specified title. Not stored, but kept for
@@ -99,11 +110,11 @@ class SMWWikiPageValue extends SMWDataValue {
 			case '_wpc' : case '__suc': case '__sin':
 				$this->m_fixNamespace = NS_CATEGORY;
 			break;
-			case '_wpf' : case '__spf':
-				$this->m_fixNamespace = SF_NS_FORM;
-			break;
 			case '_wps' :
 				$this->m_fixNamespace = SMW_NS_SCHEMA;
+			break;
+			case '_wpu' :
+				$this->m_fixNamespace = NS_USER;
 			break;
 			default: // case '_wpg':
 				$this->m_fixNamespace = NS_MAIN;
@@ -111,7 +122,7 @@ class SMWWikiPageValue extends SMWDataValue {
 	}
 
 	protected function parseUserValue( $value ) {
-		global $wgContLang;
+		$localizer = Localizer::getInstance();
 
 		// support inputs like " [[Test]] ";
 		// note that this only works when SMW_PARSER_LINV is set
@@ -139,7 +150,7 @@ class SMWWikiPageValue extends SMWDataValue {
 		// instance to distinguish [[~Foo*]] from [[Help:~Foo*]]
 		if ( $this->getOption( self::OPT_QUERY_COMP_CONTEXT ) || $this->getOption( self::OPT_QUERY_CONTEXT ) ) {
 
-			$title = Title::newFromText( $value );
+			$title = Title::newFromText( $value, $this->m_fixNamespace );
 
 			// T:P0427 If the user value says `ab c*` then make sure to use this one
 			// instead of the transformed DBKey which would be `Ab c*`
@@ -151,7 +162,7 @@ class SMWWikiPageValue extends SMWDataValue {
 			// T:P0902 (`[[Help:]]`)
 			} elseif ( $title !== null ) {
 				return $this->m_dataitem = SMWDIWikiPage::newFromTitle( $title );
-			} elseif ( !Localizer::getInstance()->getNamespaceIndexByName( substr( $value, 0, -1 ) ) ) {
+			} elseif ( !$localizer->getNamespaceIndexByName( substr( $value, 0, -1 ) ) ) {
 				return $this->m_dataitem = new SMWDIWikiPage( $value, NS_MAIN );
 			}
 		}
@@ -169,14 +180,16 @@ class SMWWikiPageValue extends SMWDataValue {
 			$this->m_title = Title::newFromText( $value, $this->m_fixNamespace );
 		}
 
+		$property = $this->getProperty();
+
 		/// TODO: Escape the text so users can see punctuation problems (bug 11666).
-		if ( $this->m_title === null && $this->getProperty() !== null ) {
-			$this->addErrorMsg( [ 'smw-datavalue-wikipage-property-invalid-title', $this->getProperty()->getLabel(), $value ] );
+		if ( $this->m_title === null && $property !== null ) {
+			$this->addErrorMsg( [ 'smw-datavalue-wikipage-property-invalid-title', $property->getLabel(), $value ] );
 		} elseif ( $this->m_title === null ) {
 			$this->addErrorMsg( [ 'smw-datavalue-wikipage-invalid-title', $value ] );
 		} elseif ( ( $this->m_fixNamespace != NS_MAIN ) &&
 			 ( $this->m_fixNamespace != $this->m_title->getNamespace() ) ) {
-			$this->addErrorMsg( [ 'smw_wrong_namespace', $wgContLang->getNsText( $this->m_fixNamespace ) ] );
+			$this->addErrorMsg( [ 'smw_wrong_namespace', $localizer->getNamespaceTextById( $this->m_fixNamespace ) ] );
 		} else {
 			$this->m_fragment = str_replace( ' ', '_', $this->m_title->getFragment() );
 			$this->m_prefixedtext = '';
@@ -269,10 +282,27 @@ class SMWWikiPageValue extends SMWDataValue {
 		if ( is_null( $linked ) || $linked === false ||
 			$this->m_outformat == '-' || !$this->isValid() ||
 			$this->m_caption === '' ) {
-			return $this->m_caption !== false ? $this->m_caption : $this->getWikiValue();
+			$text = $this->m_caption !== false ? $this->m_caption : $this->getWikiValue();
+
+			// #4037
+			if ( $this->linkAttributes !== [] ) {
+				$text = \Html::rawElement(
+					'span',
+					$this->linkAttributes,
+					$text
+				);
+			}
+
+			return $text;
 		}
 
-		if ( Image::isImage( $this->m_dataitem ) && $this->m_dataitem->getInterwiki() === '' ) {
+		$noImage = $this->getOption( self::NO_IMAGE, false );
+
+		if ( $this->m_outformat == 'noimage' ) {
+			$noImage = true;
+		}
+
+		if ( Image::isImage( $this->m_dataitem ) && $this->m_dataitem->getInterwiki() === '' && !$noImage ) {
 			$linkEscape = '';
 			$options = $this->m_outformat === false ? 'frameless|border|text-top|' : str_replace( ';', '|', \Sanitizer::removeHTMLtags( $this->m_outformat ) );
 			$defaultCaption = '|' . $this->getShortCaptionText() . '|' . $options;
@@ -356,9 +386,15 @@ class SMWWikiPageValue extends SMWDataValue {
 			return $this->getErrorText();
 		}
 
+		$noImage = $this->getOption( self::NO_IMAGE, false );
+
+		if ( $this->m_outformat == 'noimage' ) {
+			$noImage = true;
+		}
+
 		if ( is_null( $linked ) || $linked === false || $this->m_outformat == '-' ) {
 			return $this->getWikiValue();
-		} elseif ( Image::isImage( $this->m_dataitem ) && $this->m_dataitem->getInterwiki() === '' ) {
+		} elseif ( Image::isImage( $this->m_dataitem ) && $this->m_dataitem->getInterwiki() === '' && !$noImage ) {
 			// Embed images and other files
 			// Note that the embedded file links to the image, hence needs no additional link text.
 			// There should not be a linebreak after an impage, just like there is no linebreak after
@@ -438,7 +474,9 @@ class SMWWikiPageValue extends SMWDataValue {
 
 		if ( $this->getOption( self::SHORT_FORM, false ) ) {
 			$text = $this->getText();
-		} elseif ( $this->getTypeID() === '_wpp' || $this->m_fixNamespace == NS_MAIN ) {
+		} elseif ( $this->getOption( self::PREFIXED_FORM, false ) ) {
+			$text = $this->getPrefixedText();
+		} elseif ( in_array( $this->getTypeID(), [ '_wpp', '_wps', '_wpu' ] ) || $this->m_fixNamespace == NS_MAIN ) {
 			$text = $this->getPrefixedText();
 		} else {
 			$text = $this->getText();
@@ -469,6 +507,8 @@ class SMWWikiPageValue extends SMWDataValue {
 ///// special interface for wiki page values
 
 	/**
+	 * @deprecated since 3.1 use getDataItem()->getTitle() instead
+	 *
 	 * Return according Title object or null if no valid value was set.
 	 * null can be returned even if this object returns true for isValid(),
 	 * since the latter function does not check whether MediaWiki can really
@@ -479,28 +519,55 @@ class SMWWikiPageValue extends SMWDataValue {
 	 * @return Title
 	 */
 	public function getTitle() {
-		if ( ( $this->isValid() ) && is_null( $this->m_title ) ) {
-			$this->m_title = $this->m_dataitem->getTitle();
 
-			if ( is_null( $this->m_title ) ) { // should not normally happen, but anyway ...
-				$this->addErrorMsg(
-					[
-						'smw_notitle',
-						Localizer::getInstance()->getNamespaceTextById( $this->m_dataitem->getNamespace() ) . ':' . $this->m_dataitem->getDBkey()
-					]
+		if ( $this->m_title !== null ) {
+			return $this->m_title;
+		}
+
+		if ( $this->isValid() ) {
+
+			if ( ( $title = $this->m_dataitem->getTitle() ) !== null ) {
+				return $this->m_title = $title;
+			}
+
+			// #3278, Special handling of `>` in the user namespace, MW (1.31+)
+			// added a prefix to users that originate from imported content
+			if (
+				$this->m_dataitem->getNamespace() === NS_USER &&
+				strpos( $this->m_dataitem->getDBkey(), '>' ) !== false ) {
+
+				$this->setOption( self::OPT_DISABLE_INFOLINKS, true );
+
+				$this->m_title = Title::newFromText(
+					$this->m_dataitem->getDBkey()
 				);
+
+				return $this->m_title;
 			}
 		}
 
-		return $this->m_title;
+		$errArg = $this->m_caption;
+
+		if ( $this->isValid() ) {
+			$ns = Localizer::getInstance()->getNamespaceTextById(
+				$this->m_dataitem->getNamespace()
+			);
+
+			$errArg = "$ns:" . $this->m_dataitem->getDBkey();
+		}
+
+		// Should not normally happen, but anyway ...
+		$this->addErrorMsg( [ 'smw_notitle', $errArg ] );
 	}
 
 	/**
+	 * @deprecated since 3.1
+	 *
 	 * Get MediaWiki's ID for this value or 0 if not available.
 	 *
 	 * @return integer
 	 */
-	public function getArticleID() {
+	private function getArticleID() {
 		if ( $this->m_id === false ) {
 			$this->m_id = !is_null( $this->getTitle() ) ? $this->m_title->getArticleID() : 0;
 		}
@@ -509,15 +576,19 @@ class SMWWikiPageValue extends SMWDataValue {
 	}
 
 	/**
+	 * @deprecated since 3.1
+	 *
 	 * Get namespace constant for this value.
 	 *
 	 * @return integer
 	 */
-	public function getNamespace() {
+	private function getNamespace() {
 		return $this->m_dataitem->getNamespace();
 	}
 
 	/**
+	 * @deprecated since 3.1
+	 *
 	 * Get DBKey for this value. Subclasses that allow for values that do not
 	 * correspond to wiki pages may choose a DB key that is not a legal title
 	 * DB key but rather another suitable internal ID. Thus it is not suitable
@@ -525,7 +596,7 @@ class SMWWikiPageValue extends SMWDataValue {
 	 *
 	 * @return string
 	 */
-	public function getDBkey() {
+	private function getDBkey() {
 		return $this->m_dataitem->getDBkey();
 	}
 
@@ -557,7 +628,7 @@ class SMWWikiPageValue extends SMWDataValue {
 
 		// In case something went wrong (invalid NS etc.), hint the ID to aid the
 		// investigation
-		if ( $this->m_dataitem->getId() > 0 ) {
+		if ( $this->m_dataitem !== null && $this->m_dataitem->getId() > 0 ) {
 			$this->m_prefixedtext = 'NO_VALID_VALUE (ID: ' . $this->m_dataitem->getId() . ')';
 		} else {
 			$this->m_prefixedtext = 'NO_VALID_VALUE';
@@ -574,16 +645,18 @@ class SMWWikiPageValue extends SMWDataValue {
 	}
 
 	/**
+	 * @deprecated since 3.1
+	 *
 	 * Get interwiki prefix or empty string.
 	 *
 	 * @return string
 	 */
-	public function getInterwiki() {
+	private function getInterwiki() {
 		return $this->m_dataitem->getInterwiki();
 	}
 
 	/**
-	 * DataValue::getPreferredCaption
+	 * @see SMWDataValue::getPreferredCaption
 	 *
 	 * @since 2.4
 	 *
@@ -631,6 +704,11 @@ class SMWWikiPageValue extends SMWDataValue {
 
 		if ( $displayTitle === '' ) {
 			$displayTitle = $this->getText();
+		}
+
+		// #3945 (Remove context as per pipe trick)
+		if ( $this->hasFeature( SMW_DV_WPV_PIPETRICK ) ) {
+			$displayTitle = Pipetrick::apply( $displayTitle );
 		}
 
 		return $displayTitle . $fragmentText;
@@ -686,7 +764,7 @@ class SMWWikiPageValue extends SMWDataValue {
 	 *
 	 * @return string sortkey
 	 */
-	public function getSortKey() {
+	private function getSortKey() {
 		return ApplicationFactory::getInstance()->getStore()->getWikiPageSortKey( $this->m_dataitem );
 	}
 
@@ -697,30 +775,14 @@ class SMWWikiPageValue extends SMWDataValue {
 	 */
 	public function getDisplayTitle() {
 
-		if ( $this->m_dataitem === null || !$this->isEnabledFeature( SMW_DV_WPV_DTITLE ) ) {
+		if ( $this->m_dataitem === null || !$this->hasFeature( SMW_DV_WPV_DTITLE ) ) {
 			return '';
 		}
 
-		return $this->findDisplayTitleFor( $this->m_dataitem );
-	}
+		// Should come from the DataValueServiceFactory
+		$displayTitleFinder = ApplicationFactory::getInstance()->singleton( 'DisplayTitleFinder' );
 
-	private function findDisplayTitleFor( $subject ) {
-
-		$displayTitle = '';
-
-		$dataItems = ApplicationFactory::getInstance()->getCachedPropertyValuesPrefetcher()->getPropertyValues(
-			$subject,
-			new DIProperty( '_DTITLE' )
-		);
-
-		if ( $dataItems !== null && $dataItems !== [] ) {
-			$displayTitle = end( $dataItems )->getString();
-		} elseif ( $subject->getSubobjectName() !== '' ) {
-			// Check whether the base subject has a DISPLAYTITLE
-			return $this->findDisplayTitleFor( $subject->asBase() );
-		}
-
-		return $displayTitle;
+		return $displayTitleFinder->findDisplayTitle( $this->m_dataitem );
 	}
 
 }

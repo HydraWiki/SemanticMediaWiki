@@ -6,9 +6,11 @@ use Hooks;
 use SMW\ApplicationFactory;
 use SMW\DataValueFactory;
 use SMW\Localizer;
+use SMW\SemanticData;
 use SMW\MediaWiki\MagicWordsFinder;
 use SMW\MediaWiki\RedirectTargetFinder;
 use SMW\MediaWiki\StripMarkerDecoder;
+use SMW\MediaWiki\HookDispatcherAwareTrait;
 use SMW\ParserData;
 use SMW\Utils\Timer;
 use SMWOutputs;
@@ -29,6 +31,8 @@ use Title;
  * @author mwjames
  */
 class InTextAnnotationParser {
+
+	use HookDispatcherAwareTrait;
 
 	/**
 	 * Internal state for switching SMW link annotations off/on during parsing
@@ -58,9 +62,9 @@ class InTextAnnotationParser {
 	private $redirectTargetFinder;
 
 	/**
-	 * @var DataValueFactory
+	 * @var AnnotationProcessor
 	 */
-	private $dataValueFactory = null;
+	private $annotationProcessor;
 
 	/**
 	 * @var ApplicationFactory
@@ -107,7 +111,6 @@ class InTextAnnotationParser {
 		$this->linksProcessor = $linksProcessor;
 		$this->magicWordsFinder = $magicWordsFinder;
 		$this->redirectTargetFinder = $redirectTargetFinder;
-		$this->dataValueFactory = DataValueFactory::getInstance();
 		$this->applicationFactory = ApplicationFactory::getInstance();
 	}
 
@@ -130,6 +133,15 @@ class InTextAnnotationParser {
 	}
 
 	/**
+	 * @since 3.1
+	 *
+	 * @return SemanticData
+	 */
+	public function getSemanticData() {
+		return $this->parserData->getSemanticData();
+	}
+
+	/**
 	 * Parsing text before an article is displayed or previewed, strip out
 	 * semantic properties and add them to the ParserOutput object
 	 *
@@ -138,7 +150,6 @@ class InTextAnnotationParser {
 	 * @param string &$text
 	 */
 	public function parse( &$text ) {
-
 		$title = $this->parserData->getTitle();
 		Timer::start( __CLASS__ );
 
@@ -151,6 +162,11 @@ class InTextAnnotationParser {
 
 		$this->addRedirectTargetAnnotationFromText(
 			$text
+		);
+
+		$this->annotationProcessor = new AnnotationProcessor(
+			$this->parserData->getSemanticData(),
+			DataValueFactory::getInstance()
 		);
 
 		// Obscure [/] to find a set of [[ :: ... ]] while those in-between are left for
@@ -169,6 +185,12 @@ class InTextAnnotationParser {
 			$text
 		);
 
+		$this->annotationProcessor->setCanAnnotate(
+			$this->parserData->canUse()
+		);
+
+		$this->hookDispatcher->onAfterLinksProcessingComplete( $text, $this->annotationProcessor );
+
 		// Ensure remaining encoded entities are decoded again
 		$text = LinksEncoder::removeLinkObfuscation( $text );
 
@@ -177,7 +199,10 @@ class InTextAnnotationParser {
 			$this->parserData->addExtraParserKey( 'userlang' );
 		}
 
-		$this->parserData->pushSemanticDataToParserOutput();
+		$this->parserData->copyToParserOutput();
+
+		// Remove context
+		$this->annotationProcessor->release();
 
 		$this->parserData->addLimitReport(
 			'intext-parsertime',
@@ -196,6 +221,17 @@ class InTextAnnotationParser {
 	 */
 	public static function hasMarker( $text ) {
 		return strpos( $text, self::OFF ) !== false || strpos( $text, self::ON ) !== false;
+	}
+
+	/**
+	 * @since 3.1
+	 *
+	 * @param string $text
+	 *
+	 * @return boolean
+	 */
+	public static function hasPropertyLink( $text ) {
+		return strpos( $text, '::@@@' ) !== false;
 	}
 
 	/**
@@ -344,8 +380,9 @@ class InTextAnnotationParser {
 
 		$subject = $this->parserData->getSubject();
 
-		if ( ( $propertyLink = $this->getPropertyLink( $subject, $properties, $value, $valueCaption ) ) !== '' ) {
-			return $propertyLink;
+		// #1855
+		if ( substr( $value, 0, 3 ) === '@@@' ) {
+			return $this->makePropertyLink( $subject, $properties, $value, $valueCaption );
 		}
 
 		return $this->addPropertyValue( $subject, $properties, $value, $valueCaption );
@@ -370,7 +407,7 @@ class InTextAnnotationParser {
 
 		// Add properties to the semantic container
 		foreach ( $properties as $property ) {
-			$dataValue = $this->dataValueFactory->newDataValueByText(
+			$dataValue = $this->annotationProcessor->newDataValueByText(
 				$property,
 				$value,
 				$valueCaption,
@@ -417,7 +454,7 @@ class InTextAnnotationParser {
 			'SMW_SHOWFACTBOX'
 		];
 
-		Hooks::run( 'SMW::Parser::BeforeMagicWordsFinder', [ &$magicWords ] );
+		$this->hookDispatcher->onBeforeMagicWordsFinder( $magicWords );
 
 		foreach ( $magicWords as $magicWord ) {
 			$words[] = $this->magicWordsFinder->findMagicWordInText( $magicWord, $text );
@@ -432,31 +469,38 @@ class InTextAnnotationParser {
 		return $this->applicationFactory->getNamespaceExaminer()->isSemanticEnabled( $title->getNamespace() );
 	}
 
-	private function getPropertyLink( $subject, $properties, $value, $valueCaption ) {
-
-		// #1855
-		if ( substr( $value, 0, 3 ) !== '@@@' ) {
-			return '';
-		}
+	private function makePropertyLink( $subject, $properties, $value, $caption ) {
 
 		$property = end( $properties );
+		$linker = smwfGetLinker();
+		$class = 'smw-property';
 
-		$dataValue = $this->dataValueFactory->newPropertyValueByLabel(
+		// #4037
+		// [[Foo::@@@|#] where `|#` indicates a noLink request
+		if ( $caption === '#' ) {
+			$linker = false;
+			$caption = false;
+			$class = 'smw-property nolink';
+		}
+
+		$dataValue = DataValueFactory::getInstance()->newPropertyValueByLabel(
 			$property,
-			$valueCaption,
+			$caption,
 			$subject
 		);
+
+		$dataValue->setLinkAttributes( [ 'class' => $class ] );
 
 		if ( ( $lang = Localizer::getAnnotatedLanguageCodeFrom( $value ) ) !== false ) {
 			$dataValue->setOption( $dataValue::OPT_USER_LANGUAGE, $lang );
 			$dataValue->setCaption(
-				$valueCaption === false ? $dataValue->getWikiValue() : $valueCaption
+				$caption === false ? $dataValue->getWikiValue() : $caption
 			);
 		}
 
 		$dataValue->setOption( $dataValue::OPT_HIGHLIGHT_LINKER, true );
 
-		return $dataValue->getShortWikitext( smwfGetLinker() );
+		return $dataValue->getShortWikitext( $linker );
 	}
 
 }

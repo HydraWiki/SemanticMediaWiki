@@ -3,13 +3,15 @@
 namespace SMW\Tests;
 
 use RuntimeException;
-use SMW\ApplicationFactory;
+use SMW\Services\ServicesFactory;
 use SMW\NamespaceExaminer;
 use SMW\PropertyRegistry;
 use SMW\Settings;
 use SMW\StoreFactory;
 use SMW\Tests\Utils\Connection\TestDatabaseTableBuilder;
 use SMWExporter as Exporter;
+use HashBagOStuff;
+use ObjectCache;
 
 /**
  * @group semantic-mediawiki
@@ -59,6 +61,21 @@ abstract class DatabaseTestCase extends \PHPUnit_Framework_TestCase {
 	 */
 	protected $isUsableUnitTestDatabase = true;
 
+	/**
+	 * Tests are written with a specific default behaviour in mind and should be
+	 * independent from any `LocalSettings.php` configuration that may alter functional
+	 * components therefore add configurations that needs to be initialized before
+	 * any service is created.
+	 */
+	public static function setUpBeforeClass() {
+
+		$defaultSettingKeys = [
+			'smwgQEqualitySupport'
+		];
+
+		TestEnvironment::loadDefaultSettings( $defaultSettingKeys );
+	}
+
 	protected function setUp() {
 		parent::setUp();
 
@@ -70,12 +87,18 @@ abstract class DatabaseTestCase extends \PHPUnit_Framework_TestCase {
 		$this->checkIfDatabaseCanBeUsedOtherwiseSkipTest();
 		$this->checkIfStoreCanBeUsedOtherwiseSkipTest();
 
-		ApplicationFactory::getInstance()->registerObject( 'Store', $this->getStore() );
+		$fixedInMemoryLruCache = ServicesFactory::getInstance()->create( 'FixedInMemoryLruCache' );
 
-		ApplicationFactory::getInstance()->registerObject(
-			'Cache',
-			ApplicationFactory::getInstance()->newCacheFactory()->newFixedInMemoryCache()
-		);
+		$this->testEnvironment->registerObject( 'Store', $this->getStore() );
+		$this->testEnvironment->registerObject( 'Cache', $fixedInMemoryLruCache );
+
+		if ( !defined( 'SMW_PHPUNIT_DB_VERSION' ) ) {
+			define( 'SMW_PHPUNIT_DB_VERSION',  $this->getDBConnection()->getServerInfo() );
+		}
+
+		/**
+		 * MediaWiki specific setup
+		 */
 
 		// Avoid surprise on revisions etc.
 		// @see MediaWikiTestCase::doLightweightServiceReset
@@ -84,6 +107,25 @@ abstract class DatabaseTestCase extends \PHPUnit_Framework_TestCase {
 		$this->testEnvironment->resetMediaWikiService( 'MainWANObjectCache' );
 
 		$this->testEnvironment->clearPendingDeferredUpdates();
+
+		// #3916
+		// Reset $wgUser, which is probably 127.0.0.1, as its loaded data is probably not valid
+		// @todo Should we start setting $wgUser to something nondeterministic
+		//  to encourage tests to be updated to not depend on it?
+		$GLOBALS['wgUser']->clearInstanceCache( $GLOBALS['wgUser']->mFrom );
+
+		ObjectCache::$instances[CACHE_DB] = new HashBagOStuff();
+
+		// Avoid Error while sending QUERY packet / SqlBagOStuff seen on MW 1.24
+		// https://s3.amazonaws.com/archive.travis-ci.org/jobs/30408638/log.txt
+		ObjectCache::$instances[CACHE_ANYTHING] = new HashBagOStuff();
+
+		$GLOBALS['wgDevelopmentWarnings'] = true;
+		$GLOBALS['wgMainCacheType'] = CACHE_NONE;
+		$GLOBALS['wgMessageCacheType'] = CACHE_NONE;
+		$GLOBALS['wgParserCacheType'] = CACHE_NONE;
+		$GLOBALS['wgLanguageConverterCacheType'] = CACHE_NONE;
+		$GLOBALS['wgUseDatabaseMessages'] = false;
 	}
 
 	protected function tearDown() {
@@ -93,8 +135,7 @@ abstract class DatabaseTestCase extends \PHPUnit_Framework_TestCase {
 			$this->testEnvironment->tearDown();
 		}
 
-		ApplicationFactory::clear();
-		NamespaceExaminer::clear();
+		ServicesFactory::clear();
 		PropertyRegistry::clear();
 		Settings::clear();
 		Exporter::getInstance()->clear();
@@ -110,7 +151,7 @@ abstract class DatabaseTestCase extends \PHPUnit_Framework_TestCase {
 	 * request a trear down so that the next test can rebuild the tables from
 	 * scratch
 	 */
-	public function run( \PHPUnit_Framework_TestResult $result = null ) {
+	public function run( ?\PHPUnit_Framework_TestResult $result = null ) : \PHPUnit_Framework_TestResult {
 
 		$this->getStore()->clear();
 
@@ -130,9 +171,11 @@ abstract class DatabaseTestCase extends \PHPUnit_Framework_TestCase {
 			$this->isUsableUnitTestDatabase = false;
 		}
 
-		parent::run( $result );
+		$testResult = parent::run( $result );
 
 		$this->destroyDatabaseTables( $this->destroyDatabaseTablesAfterRun );
+
+		return $testResult;
 	}
 
 	protected function removeDatabaseTypeFromTest( $databaseToBeExcluded ) {
@@ -154,10 +197,10 @@ abstract class DatabaseTestCase extends \PHPUnit_Framework_TestCase {
 	protected function skipTestForMediaWikiVersionLowerThan( $version, $message = '' ) {
 
 		if ( $message === '' ) {
-			$message = "This test is skipped for MediaWiki version {$GLOBALS['wgVersion']}";
+			$message = "This test is skipped for MediaWiki version " . MW_VERSION;
 		}
 
-		if ( version_compare( $GLOBALS['wgVersion'], $version, '<' ) ) {
+		if ( version_compare( MW_VERSION, $version, '<' ) ) {
 			$this->markTestSkipped( $message );
 		}
 	}

@@ -6,23 +6,22 @@ use Html;
 use Onoi\Cache\Cache;
 use ParserOutput;
 use SMW\SQLStore\ChangeOp\ChangeDiff;
-use SMW\SQLStore\QueryDependency\DependencyLinksUpdateJournal;
+use SMW\MediaWiki\Jobs\ParserCachePurgeJob;
 use SMWQuery as Query;
 use Title;
 use WebRequest;
 
 /**
- * Some updates require to be handled in a "post" process meaning after an update
- * has already taken place to iterate over those results as input for a value
- * dependency.
+ * Some updates need to be handled in via post processing,
+ * so they can use values computed in the normal update process as input.
  *
- * The post process can only happen after the Store and hereby related processes
+ * The post process can only happen after the Store and related processes
  * have been updated. A simple null edit is in most cases inappropriate and
- * therefore it is necessary to a complete a re-parse (triggered by the UpdateJob)
- * to ensure consistency among the stored and displayed data.
+ * therefore it is necessary to do a complete re-parse (triggered by the UpdateJob).
+ * This ensures consistency among the stored and displayed data.
  *
- * The PostProc relies on an API request to initiate related updates and once
- * finished will handle the reload of the page.
+ * The PostProc relies on JavaScript (ext.smw.util.postproc.js) that triggers a
+ * web API request and reloads the page on completion of this request.
  *
  * @license GNU GPL v2+
  * @since 3.0
@@ -60,11 +59,6 @@ class PostProcHandler {
 	private $cache;
 
 	/**
-	 * @var boolean
-	 */
-	private $isEnabled = true;
-
-	/**
 	 * @var []
 	 */
 	private $options = [];
@@ -78,15 +72,6 @@ class PostProcHandler {
 	public function __construct( ParserOutput $parserOutput, Cache $cache ) {
 		$this->parserOutput = $parserOutput;
 		$this->cache = $cache;
-	}
-
-	/**
-	 * @since 3.0
-	 *
-	 * @param boolean $isEnabled
-	 */
-	public function isEnabled( $isEnabled ) {
-		$this->isEnabled = (bool)$isEnabled;
 	}
 
 	/**
@@ -121,7 +106,7 @@ class PostProcHandler {
 	 * @return array|string
 	 */
 	public function getModules() {
-		return 'ext.smw.postproc';
+		return [ 'ext.smw.postproc', 'ext.smw.purge' ];
 	}
 
 	/**
@@ -133,10 +118,6 @@ class PostProcHandler {
 	 * @return string
 	 */
 	public function getHtml( Title $title, WebRequest $webRequest ) {
-
-		if ( $this->isEnabled === false ) {
-			return '';
-		}
 
 		$subject = DIWikiPage::newFromTitle(
 			$title
@@ -157,6 +138,40 @@ class PostProcHandler {
 		);
 
 		$jobs = [];
+		$pagePurge = $this->options['purge-page']['on-outdated-query-dependency'] ?? false;
+
+		// POST_EDIT_UPDATE contains queries that have been registered with a
+		// `@annotation`. It means that those queries are used as input for other
+		// annotations hereby making it necessary to purge the page in order to
+		// recomputed and store the newly assigned values.
+		if ( $pagePurge ) {
+			$pagePurge = $this->parserOutput->getExtensionData( self::POST_EDIT_UPDATE ) !== null;
+		}
+
+		if (
+			$postEdit === null &&
+			$pagePurge &&
+			DependencyValidator::hasLikelyOutdatedDependencies( $title ) ) {
+			// Only push a purge when it is known that it not a postEdit action
+			// to avoid recursive purges
+			$attributes['data-title'] = $title->getPrefixedDBKey();
+			$attributes['data-msg'] = 'smw-purge-update-dependencies';
+			$attributes['data-forcelinkupdate'] = true;
+			return Html::rawElement( 'div', [ 'class' => 'smw-postproc page-purge' ] + $attributes );
+		} elseif (
+			$postEdit === null &&
+			DependencyValidator::hasLikelyOutdatedDependencies( $title ) ) {
+			// We still suspect outdated query dependencies but only
+			// force an update of the parserCache without a purge since
+			// we don't have any `@annotation` queries that would require
+			// to recompute any pending annotations
+			$parameters = [
+				'action' => 'post-processing-query-dependency'
+			];
+
+			$parserCachePurgeJob = new ParserCachePurgeJob( $title, $parameters );
+			$parserCachePurgeJob->updateParserCache();
+		}
 
 		if ( $postEdit !== null && isset( $this->options['run-jobs'] ) ) {
 			$jobs = $this->find_jobs( $this->options['run-jobs'] );
@@ -176,7 +191,7 @@ class PostProcHandler {
 		$refs = $this->parserOutput->getExtensionData( self::POST_EDIT_UPDATE );
 
 		if ( $refs !== null && $refs !== [] ) {
-			$postEdit = $this->checkRef( $title, $postEdit );
+			//$postEdit = $this->checkRef( $title, $postEdit );
 		}
 
 		if ( $postEdit !== null && $refs !== null && $refs !== [] ) {
@@ -330,7 +345,7 @@ class PostProcHandler {
 				// framework and without further computation) anticipate whether
 				// this influences a query or not, it is a good enough heuristic
 				// to allow to continue the postProc.
-				if ( $propertyList[$pid]{0} !== '_' ) {
+				if ( $propertyList[$pid][0] !== '_' ) {
 					return true;
 				}
 

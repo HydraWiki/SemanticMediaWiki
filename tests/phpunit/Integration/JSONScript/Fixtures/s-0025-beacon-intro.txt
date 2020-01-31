@@ -1,6 +1,6 @@
 <includeonly>#FORMAT: BEACON
 #PREFIX: http://d-nb.info/gnd/
-#TARGET: {{{querylink}}}
+#TARGET: {{{#querylink}}}
 #VERSION: 0.1
 #HOMEPAGE: https://www.semantic-mediawiki.org/w/index.php?title=Help:BEACON
 #FEED: https://www.semantic-mediawiki.org/w/index.php?title=BEACON&action=render

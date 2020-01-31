@@ -42,6 +42,16 @@ class PropertySubjectsLookup {
 	private $dataItemHandler;
 
 	/**
+	 * @var array
+	 */
+	private $prefetch = [];
+
+	/**
+	 * @var string
+	 */
+	private $caller = '';
+
+	/**
 	 * @since 3.0
 	 *
 	 * @param SQLStore $store
@@ -59,6 +69,102 @@ class PropertySubjectsLookup {
 	 * {@inheritDoc}
 	 */
 	public function fetchFromTable( $pid, TableDefinition $proptable, DataItem $dataItem = null, RequestOptions $requestOptions = null ) {
+
+		$this->caller = __METHOD__;
+
+		$res = $this->doFetch( $pid, $proptable, $dataItem, $requestOptions );
+
+		// Return an iterator and avoid resolving the resources directly as it
+		// may contain a large list of possible matches
+		$res = $this->iteratorFactory->newMappingIterator(
+			$this->iteratorFactory->newResultIterator( $res ),
+			[ $this, 'newFromRow' ]
+		);
+
+		return $res;
+	}
+
+	/**
+	 * @since 3.1
+	 *
+	 * @param array $ids
+	 * @param DataItem $property
+	 * @param TableDefinition $proptable
+	 * @param RequestOptions $requestOptions
+	 */
+	public function prefetchFromTable( array $ids, DataItem $property, TableDefinition $proptable, RequestOptions $requestOptions ) {
+
+		if ( $ids === [] ) {
+			return [];
+		}
+
+		$this->caller = __METHOD__;
+		$hash = $property->getSerialization();
+
+		if ( $requestOptions->getOption( RequestOptions::PREFETCH_FINGERPRINT ) === null ) {
+			$hash .= implode( '|', $ids );
+		}
+
+		$hash = md5( $hash . $requestOptions->getHash() );
+
+		if ( isset( $this->prefetch[$hash] ) ) {
+			return $this->prefetch[$hash];
+		}
+
+		$pid = $this->store->getObjectIds()->getSMWPropertyID(
+			$property
+		);
+
+		// Avoid any grouping when using the prefetch with a WHERE IN
+		// Test: Q0624
+		if ( $property->isInverse() ) {
+			$requestOptions->setOption( 'NO_GROUPBY', true );
+			$requestOptions->setOption( 'NO_DISTINCT', true );
+		}
+
+		$res = $this->doFetch( $pid, $proptable, $ids, $requestOptions );
+
+		$resultLimiter = new ResultLimiter();
+		$resultLimiter->calcSize( $requestOptions );
+
+		$result = [];
+		$warmupCache = [];
+
+		// Reassign per ID
+		foreach ( $res as $row ) {
+
+			if ( $resultLimiter->canSkip( $row->id ) ) {
+				continue;
+			}
+
+			if ( !isset( $result[$row->id] ) ) {
+				$result[$row->id] = [];
+			}
+
+			$keys = [
+				$row->smw_title,
+				$row->smw_namespace,
+				$row->smw_iw,
+				$row->smw_sort,
+				$row->smw_subobject
+
+			];
+
+			$dataItem = $this->dataItemHandler->dataItemFromDBKeys( $keys );
+			$dataItem->setId( $row->smw_id );
+
+			$result[$row->id][] = $dataItem;
+			$warmupCache[] = $dataItem;
+		}
+
+		if ( $warmupCache !== [] ) {
+			$this->store->getObjectIds()->warmupCache( $warmupCache );
+		}
+
+		return $this->prefetch[$hash] = $result;
+	}
+
+	private function doFetch( $pid, TableDefinition $proptable, $dataItem = null, RequestOptions $requestOptions = null ) {
 
 		$connection = $this->store->getConnection( 'mw.db' );
 		$group = false;
@@ -85,60 +191,10 @@ class PropertySubjectsLookup {
 			$sortField = 'smw_sort';
 		}
 
-		$index = '';
-
 		// For certain tables (blob) the query planner chooses a suboptimal plan
 		// and causes an unacceptable query time therefore force an index for
 		// those tables where the behaviour has been observed.
-		if ( $dataItemHandler->getIndexHint( 'property.subjects' ) !== '' && $dataItem === null ) {
-
-			// For tables with only a few entries, the index hint seems to create
-			// a disadvantage, yet when the amount reaches a certain level the
-			// index hint becomes necessary to retain an acceptable response
-			// time.
-			//
-			// Table with < 100 entries
-			//
-			// SELECT smw_id, smw_title, smw_namespace, smw_iw, smw_subobject, smw_sortkey, smw_sort
-			// FROM `smw_object_ids` INNER JOIN `smw_di_number` AS t1 ON t1.s_id=smw_id
-			// WHERE (t1.p_id='196959') AND (smw_iw!=':smw') AND (smw_iw!=':smw-delete') AND (smw_iw!=':smw-redi')
-			// GROUP BY smw_sort, smw_id LIMIT 21	8.2510ms (without index hint)
-			//
-			// SELECT smw_id, smw_title, smw_namespace, smw_iw, smw_subobject, smw_sortkey, smw_sort
-			// FROM `smw_object_ids` INNER JOIN `smw_di_number` AS t1 FORCE INDEX(s_id) ON t1.s_id=smw_id
-			// WHERE (t1.p_id='196959') AND (smw_iw!=':smw') AND (smw_iw!=':smw-delete') AND (smw_iw!=':smw-redi')
-			// GROUP BY smw_sort, smw_id LIMIT 21	7548.6171ms (with index hint)
-			//
-			// vs.
-			//
-			// Table with > 5000 entries
-			//
-			// SELECT smw_id, smw_title, smw_namespace, smw_iw, smw_subobject, smw_sortkey, smw_sort
-			// FROM `smw_object_ids` INNER JOIN `smw_di_blob` AS t1 FORCE INDEX(s_id) ON t1.s_id=smw_id
-			// WHERE (t1.p_id='310170') AND (smw_iw!=':smw') AND (smw_iw!=':smw-delete') AND (smw_iw!=':smw-redi')
-			// GROUP BY smw_sort, smw_id LIMIT 21	62.6249ms (with index hint)
-			//
-			// SELECT smw_id, smw_title, smw_namespace, smw_iw, smw_subobject, smw_sortkey, smw_sort
-			// FROM `smw_object_ids` INNER JOIN `smw_di_blob` AS t1 ON t1.s_id=smw_id
-			// WHERE (t1.p_id='310170') AND (smw_iw!=':smw') AND (smw_iw!=':smw-delete') AND (smw_iw!=':smw-redi')
-			// GROUP BY smw_sort, smw_id LIMIT 21	8856.1242ms (without index hint)
-			//
-			$cq = $connection->newQuery();
-			$cq->type( 'SELECT' );
-			$cq->table( SQLStore::PROPERTY_STATISTICS_TABLE );
-			$cq->field( 'usage_count' );
-			$cq->condition( $cq->eq( 'p_id', $pid ) );
-			$res = $cq->execute( __METHOD__ );
-
-			foreach ( $res as $r ) {
-				// 5000? It just showed to be a sweet spot while doing some
-				// exploratory queries
-				if ( $r->usage_count > 5000 ) {
-					$index = 'FORCE INDEX(' . $dataItemHandler->getIndexHint( 'property.subjects' ) . ')';
-				}
-			}
-		}
-
+		$index = $this->getIndexHint( $dataItemHandler, $pid, $dataItem );
 		$result = [];
 
 		if ( $proptable->usesIdSubject() ) {
@@ -184,7 +240,20 @@ class PropertySubjectsLookup {
 			$query->condition( $query->eq( "t1.p_id", $pid ) );
 		}
 
-		$this->getWhereConds( $query, $dataItem );
+		// Specified by the prefetch
+		if ( is_array( $dataItem ) ) {
+
+			$fieldname = 's_id';
+
+			if ( $proptable->getDiType() === DataItem::TYPE_WIKIPAGE ) {
+				$fieldname = 'o_id';
+			}
+
+			$query->condition( $query->in( "t1.$fieldname", $dataItem ) );
+			$query->field( "t1.$fieldname AS id" );
+		} else {
+			$this->getWhereConds( $query, $dataItem );
+		}
 
 		if ( $requestOptions !== null ) {
 			foreach ( $requestOptions->getExtraConditions() as $extraCondition ) {
@@ -196,12 +265,19 @@ class PropertySubjectsLookup {
 					$extraCondition( $query );
 				}
 			}
+
+			// Avoid `getSQLConditions` to work on the condition
+			$requestOptions->emptyExtraConditions();
 		}
 
 		if ( $proptable->usesIdSubject() ) {
 			foreach ( [ SMW_SQL3_SMWIW_OUTDATED, SMW_SQL3_SMWDELETEIW, SMW_SQL3_SMWREDIIW ] as $v ) {
 				$query->condition( $query->neq( "smw_iw", $v ) );
 			}
+		}
+
+		if ( $requestOptions->getOption( 'NO_GROUPBY' ) ) {
+			$group = false;
 		}
 
 		if ( $group && $connection->isType( 'postgres') ) {
@@ -218,6 +294,8 @@ class PropertySubjectsLookup {
 			// http://www.mysqltutorial.org/mysql-distinct.aspx
 			$requestOptions->setOption( 'GROUP BY', $sortField . ', smw_id' );
 			$requestOptions->setOption( 'ORDER BY', false );
+		} elseif ( $requestOptions->getOption( 'NO_DISTINCT' ) ) {
+			$requestOptions->setOption( 'DISTINCT', false );
 		} else {
 			$requestOptions->setOption( 'DISTINCT', true );
 		}
@@ -238,20 +316,24 @@ class PropertySubjectsLookup {
 
 		$query->options( $opts );
 
+		if ( $requestOptions->exclude_limit ) {
+			$query->option( 'LIMIT', null );
+			$query->option( 'OFFSET', null );
+		}
+
+		$caller = $this->caller;
+
+		if ( strval( $requestOptions->getCaller() ) !== '' ) {
+			$caller .= " (for " . $requestOptions->getCaller() . ")";
+		}
+
 		$res = $connection->query(
 			$query,
-			__METHOD__
+			$caller
 		);
 
 		$this->dataItemHandler = $this->store->getDataItemHandlerForDIType(
 			DataItem::TYPE_WIKIPAGE
-		);
-
-		// Return an iterator and avoid resolving the resources directly as it
-		// may contain a large list of possible matches
-		$res = $this->iteratorFactory->newMappingIterator(
-			$this->iteratorFactory->newResultIterator( $res ),
-			[ $this, 'newFromRow' ]
 		);
 
 		return $res;
@@ -267,7 +349,7 @@ class PropertySubjectsLookup {
 	public function newFromRow( $row ) {
 
 		try {
-			if ( $row->smw_iw === '' || $row->smw_iw{0} != ':' ) { // filter special objects
+			if ( $row->smw_iw === '' || $row->smw_iw[0] != ':' ) { // filter special objects
 
 				$keys = [
 					$row->smw_title,
@@ -313,6 +395,63 @@ class PropertySubjectsLookup {
 				$query->condition( $query->eq( "t1.$fieldname", $value ) );
 			}
 		}
+	}
+
+	private function getIndexHint( $dataItemHandler, $pid, $dataItem = null ) {
+
+		$index = '';
+
+		if ( $dataItem !== null || $dataItemHandler->getIndexHint( $dataItemHandler::IHINT_PSUBJECTS ) === '' ) {
+			return $index;
+		}
+
+		// For tables with only a few entries, the index hint seems to create
+		// a disadvantage, yet when the amount reaches a certain level the
+		// index hint becomes necessary to retain an acceptable response
+		// time.
+		//
+		// Table with < 100 entries
+		//
+		// SELECT smw_id, smw_title, smw_namespace, smw_iw, smw_subobject, smw_sortkey, smw_sort
+		// FROM `smw_object_ids` INNER JOIN `smw_di_number` AS t1 ON t1.s_id=smw_id
+		// WHERE (t1.p_id='196959') AND (smw_iw!=':smw') AND (smw_iw!=':smw-delete') AND (smw_iw!=':smw-redi')
+		// GROUP BY smw_sort, smw_id LIMIT 21	8.2510ms (without index hint)
+		//
+		// SELECT smw_id, smw_title, smw_namespace, smw_iw, smw_subobject, smw_sortkey, smw_sort
+		// FROM `smw_object_ids` INNER JOIN `smw_di_number` AS t1 FORCE INDEX(s_id) ON t1.s_id=smw_id
+		// WHERE (t1.p_id='196959') AND (smw_iw!=':smw') AND (smw_iw!=':smw-delete') AND (smw_iw!=':smw-redi')
+		// GROUP BY smw_sort, smw_id LIMIT 21	7548.6171ms (with index hint)
+		//
+		// vs.
+		//
+		// Table with > 5000 entries
+		//
+		// SELECT smw_id, smw_title, smw_namespace, smw_iw, smw_subobject, smw_sortkey, smw_sort
+		// FROM `smw_object_ids` INNER JOIN `smw_di_blob` AS t1 FORCE INDEX(s_id) ON t1.s_id=smw_id
+		// WHERE (t1.p_id='310170') AND (smw_iw!=':smw') AND (smw_iw!=':smw-delete') AND (smw_iw!=':smw-redi')
+		// GROUP BY smw_sort, smw_id LIMIT 21	62.6249ms (with index hint)
+		//
+		// SELECT smw_id, smw_title, smw_namespace, smw_iw, smw_subobject, smw_sortkey, smw_sort
+		// FROM `smw_object_ids` INNER JOIN `smw_di_blob` AS t1 ON t1.s_id=smw_id
+		// WHERE (t1.p_id='310170') AND (smw_iw!=':smw') AND (smw_iw!=':smw-delete') AND (smw_iw!=':smw-redi')
+		// GROUP BY smw_sort, smw_id LIMIT 21	8856.1242ms (without index hint)
+		//
+		$connection = $this->store->getConnection( 'mw.db' );
+
+		$row = $connection->selectRow(
+			SQLStore::PROPERTY_STATISTICS_TABLE,
+			[ 'usage_count' ],
+			[ 'p_id' => $pid ],
+			__METHOD__
+		);
+
+		// 5000? It just showed to be a sweet spot while doing some
+		// exploratory queries
+		if ( $row !== false && $row->usage_count > 5000 ) {
+			$index = 'FORCE INDEX(' . $dataItemHandler->getIndexHint( $dataItemHandler::IHINT_PSUBJECTS ) . ')';
+		}
+
+		return $index;
 	}
 
 }

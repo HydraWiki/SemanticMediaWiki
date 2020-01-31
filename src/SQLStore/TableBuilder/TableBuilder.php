@@ -7,6 +7,7 @@ use Onoi\MessageReporter\MessageReporter;
 use Onoi\MessageReporter\MessageReporterAware;
 use RuntimeException;
 use SMW\SQLStore\TableBuilder as TableBuilderInterface;
+use SMW\Utils\CliMsgFormatter;
 
 /**
  * @license GNU GPL v2+
@@ -41,7 +42,7 @@ abstract class TableBuilder implements TableBuilderInterface, MessageReporterAwa
 	 *
 	 * @param DatabaseBase $connection
 	 */
-	protected function __construct( DatabaseBase $connection ) {
+	protected function __construct( $connection ) {
 		$this->connection = $connection;
 	}
 
@@ -53,7 +54,14 @@ abstract class TableBuilder implements TableBuilderInterface, MessageReporterAwa
 	 * @return TableBuilder
 	 * @throws RuntimeException
 	 */
-	public static function factory( DatabaseBase $connection ) {
+	public static function factory( $connection ) {
+
+		if (
+			!$connection instanceof \Wikimedia\Rdbms\IDatabase &&
+			!$connection instanceof \IDatabase &&
+			!$connection instanceof \DatabaseBase ) {
+			throw new RuntimeException( "Invalid connection instance!" );
+		}
 
 		$instance = null;
 
@@ -73,8 +81,12 @@ abstract class TableBuilder implements TableBuilderInterface, MessageReporterAwa
 			throw new RuntimeException( "Unknown or unsupported DB type " . $connection->getType() );
 		}
 
-		$instance->addConfig( 'wgDBname', $GLOBALS['wgDBname'] );
-		$instance->addConfig( 'wgDBTableOptions', $GLOBALS['wgDBTableOptions'] );
+		if ( !is_a( $instance, static::class ) ) {
+			throw new RuntimeException( get_class( $instance ) . " instance doesn't match " . static::class );
+		}
+
+		$instance->setConfig( 'wgDBname', $GLOBALS['wgDBname'] );
+		$instance->setConfig( 'wgDBTableOptions', $GLOBALS['wgDBTableOptions'] );
 
 		return $instance;
 	}
@@ -85,7 +97,7 @@ abstract class TableBuilder implements TableBuilderInterface, MessageReporterAwa
 	 * @param string|integer $key
 	 * @param mixed
 	 */
-	public function addConfig( $key, $value ) {
+	public function setConfig( $key, $value ) {
 		$this->config[$key] = $value;
 	}
 
@@ -164,14 +176,35 @@ abstract class TableBuilder implements TableBuilderInterface, MessageReporterAwa
 	 */
 	public function drop( Table $table ) {
 
-		$tableName = $table->getName();
+		$cliMsgFormatter = new CliMsgFormatter();
 
-		if ( $this->connection->tableExists( $tableName ) === false ) { // create new table
-			return $this->reportMessage( " ... $tableName not found, skipping removal.\n" );
+		if ( !isset( $this->droppedTables ) ) {
+			$this->droppedTables = [];
 		}
 
+		$tableName = $table->getName();
+
+		if ( isset( $this->droppedTables[$tableName] ) ) {
+			return;
+		}
+
+		$this->droppedTables[$tableName] = true;
+
+		if ( $this->connection->tableExists( $tableName ) === false ) { // create new table
+			return $this->reportMessage(
+				$cliMsgFormatter->twoCols( "... $tableName (not found) ...", 'SKIPPED', 3 )
+			);
+		}
+
+		$this->reportMessage(
+			$cliMsgFormatter->firstCol( "... $tableName ...", 3 )
+		);
+
 		$this->doDropTable( $tableName );
-		$this->reportMessage( " ... dropped table $tableName.\n" );
+
+		$this->reportMessage(
+			$cliMsgFormatter->secondCol( 'REMOVED' )
+		);
 	}
 
 	/**

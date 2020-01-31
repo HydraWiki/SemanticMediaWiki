@@ -14,12 +14,12 @@ use SMW\MediaWiki\Specials\Ask\ParametersProcessor;
 use SMW\MediaWiki\Specials\Ask\ParametersWidget;
 use SMW\MediaWiki\Specials\Ask\QueryInputWidget;
 use SMW\MediaWiki\Specials\Ask\SortWidget;
-use SMW\MediaWiki\Specials\Ask\UrlArgs;
 use SMW\MediaWiki\Specials\Ask\HtmlForm;
 use SMW\Query\PrintRequest;
 use SMW\Query\QueryLinker;
 use SMW\Query\RemoteRequest;
 use SMW\Query\Result\StringResult;
+use SMW\Query\ResultPrinterDependency;
 use SMW\Utils\HtmlModal;
 use SMWInfolink as Infolink;
 use SMWOutputs;
@@ -27,6 +27,7 @@ use SMWQuery;
 use SMWQueryProcessor as QueryProcessor;
 use SMWQueryResult as QueryResult;
 use SpecialPage;
+use SMW\Utils\UrlArgs;
 use SMW\Utils\HtmlTabs;
 use SMW\Message;
 
@@ -170,7 +171,14 @@ class SpecialAsk extends SpecialPage {
 		}
 
 		$out->addHTML( HelpWidget::html() );
-		$this->addHelpLink( wfMessage( 'smw_ask_doculink' )->escaped(), true );
+
+		if ( $request->getCheck( 'bHelp' ) ) {
+			$helpLink = wfMessage( $request->getVal( 'bHelp' ) )->escaped();
+		} else {
+			$helpLink = wfMessage( 'smw_ask_doculink' )->escaped();
+		}
+
+		$this->addHelpLink( $helpLink, true );
 
 		// make sure locally collected output data is pushed to the output!
 		SMWOutputs::commitToOutputPage( $out );
@@ -180,7 +188,13 @@ class SpecialAsk extends SpecialPage {
 	 * @see SpecialPage::getGroupName
 	 */
 	protected function getGroupName() {
-		return 'smw_group';
+
+		if ( version_compare( MW_VERSION, '1.33', '<' ) ) {
+			return 'smw_group';
+		}
+
+		// #3711, MW 1.33+
+		return 'smw_group/search';
 	}
 
 	private function init() {
@@ -294,16 +308,9 @@ class SpecialAsk extends SpecialPage {
 		$duration = 0;
 
 		$error = '';
+		$printer = null;
 
 		if ( $this->queryString !== '' ) {
-
-			$printer = QueryProcessor::getResultPrinter(
-				$this->parameters['format'],
-				QueryProcessor::SPECIAL_PAGE
-			);
-
-			$printer->setShowErrors( false );
-
 			list( $result, $res, $duration ) = $this->fetchResults(
 				$printer,
 				$queryobj,
@@ -311,7 +318,7 @@ class SpecialAsk extends SpecialPage {
 			);
 		}
 
-		if ( isset( $printer ) && $printer->isExportFormat() ) {
+		if ( $printer !== null && $printer->isExportFormat() ) {
 
 			// Avoid a possible "Cannot modify header information - headers already sent by ..."
 			if ( defined( 'MW_PHPUNIT_TEST' ) && method_exists( $printer, 'disableHttpHeader' ) ) {
@@ -354,9 +361,11 @@ class SpecialAsk extends SpecialPage {
 		if ( $res instanceof QueryResult ) {
 			$isFromCache = $res->isFromCache();
 			$error = ErrorWidget::queryError( $queryobj );
+		} elseif ( is_string( $res ) ) {
+			$error = $res;
 		}
 
-		$infoText = $this->getInfoText(
+		$queryLog = $this->getQueryLog(
 			$duration,
 			$isFromCache
 		);
@@ -371,9 +380,6 @@ class SpecialAsk extends SpecialPage {
 
 		$htmlForm->setCallbacks(
 			[
-				'borrowed_msg_handler' => function( &$html, &$searchInfoText ) {
-					return $this->print_borrowed_msg( $html, $searchInfoText );
-				},
 				'code_handler' => function() {
 					return $this->print_code();
 				}
@@ -387,11 +393,18 @@ class SpecialAsk extends SpecialPage {
 		$htmlForm->isEditMode( $this->isEditMode );
 		$htmlForm->isBorrowedMode( $this->isBorrowedMode );
 
+		$preFrom = '';
+
 		$form = $htmlForm->getForm(
 			$urlArgs,
 			$res,
-			$infoText
+			$queryLog
 		);
+
+		if ( $this->isBorrowedMode ) {
+			$info = '';
+			$this->print_borrowed_msg( $preFrom, $info );
+		}
 
 		// The overall form is "soft-disabled" so that when JS is fully
 		// loaded, the ask module will remove this class and releases the form
@@ -402,7 +415,7 @@ class SpecialAsk extends SpecialPage {
 				'id' => 'ask',
 				"class" => ( $this->isBorrowedMode ? '' : 'is-disabled' )
 			],
-			$form . $error . $result
+			$preFrom . $form . $error . $result
 		);
 
 		$this->getOutput()->addHTML(
@@ -410,9 +423,35 @@ class SpecialAsk extends SpecialPage {
 		);
 	}
 
-	private function fetchResults( $printer, &$queryobj, &$urlArgs ) {
+	private function fetchResults( &$printer, &$queryobj, &$urlArgs ) {
 
-		list( $res, $debug, $duration, $queryobj, $native_result ) = $this->getQueryResult();
+		// Copy the printout to retain the original state while in case of no
+		// specific subject (THIS) request extend the query with a
+		// `PrintRequest::PRINT_THIS` column
+		QueryProcessor::addThisPrintout( $this->printouts, $this->parameters );
+
+		$params = QueryProcessor::getProcessedParams(
+			$this->parameters,
+			$this->printouts
+		);
+
+		$this->parameters['format'] = $params['format']->getValue();
+		$this->params = $params;
+
+		$printer = QueryProcessor::getResultPrinter(
+			$this->parameters['format'],
+			QueryProcessor::SPECIAL_PAGE
+		);
+
+		if ( $printer instanceof ResultPrinterDependency && $printer->hasMissingDependency() ) {
+			return [ $printer->getDependencyError(), null, 0 ];
+		}
+
+		list( $res, $debug, $duration, $queryobj, $native_result ) = $this->fetchQueryResult(
+			$params
+		);
+
+		$printer->setShowErrors( false );
 
 		$hidequery = $this->getRequest()->getVal( 'eq' ) == 'no';
 		$request_type = $this->getRequest()->getVal( 'request_type', '' );
@@ -425,28 +464,33 @@ class SpecialAsk extends SpecialPage {
 		if ( !$printer->isExportFormat() ) {
 			if ( $request_type !== '' ) {
 				$this->getOutput()->disable();
-				$query_result = '';
+				$output = '';
 
-				if ( $res->getCount() > 0 ) {
+				if ( ( $count = $res->getCount() ) > 0 ) {
+					$further = $res->hasFurtherResults();
 
 					if ( $request_type === 'raw' ) {
-						$query_result = $printer->getResult( $res, $this->params, SMW_OUTPUT_RAW );
+						$output = $printer->getResult( $res, $this->params, SMW_OUTPUT_RAW );
 					} else {
-						$query_result = $printer->getResult( $res, $this->params, SMW_OUTPUT_HTML );
+						$output = $printer->getResult( $res, $this->params, SMW_OUTPUT_HTML );
 					}
 
+					// The `RemoteRequest` class will use the following information
+					// when creating a `StringResult` instance
+					$output .= "<!--COUNT:$count-->";
+					$output .= "<!--FURTHERRESULTS:$further-->";
 				} elseif ( $res->getCountValue() > 0 ) {
-					$query_result = $res->getCountValue();
+					$output = $res->getCountValue();
 				}
 
 				// Don't send an ID for a raw type but for all others add one
 				// so that the `RemoteRequest` can respond appropriately and
 				// filter those back-ends that don't send a clean output.
 				if ( $request_type !== 'raw' ) {
-					$query_result .= RemoteRequest::REQUEST_ID;
+					$output .= RemoteRequest::REQUEST_ID;
 				}
 
-				return print $query_result;
+				return print $output;
 			} elseif ( ( $res instanceof QueryResult && $res->getCount() > 0 ) || $res instanceof StringResult ) {
 				if ( $this->isEditMode ) {
 					$urlArgs->set( 'eq', 'yes' );
@@ -483,7 +527,7 @@ class SpecialAsk extends SpecialPage {
 		return [ $result, $res, $duration ];
 	}
 
-	private function getInfoText( $duration, $isFromCache = false ) {
+	private function getQueryLog( $duration, $isFromCache = false ) {
 
 		$infoText = '';
 		$source = null;
@@ -500,15 +544,12 @@ class SpecialAsk extends SpecialPage {
 			$source
 		);
 
-		if ( $duration > 0 ) {
-			$infoText = Message::get(
-				[ 'smw-ask-query-search-info', $this->queryString, $querySource, $isFromCache, $duration],
-				Message::PARSE,
-				$this->getLanguage()
-			);
-		}
-
-		return $infoText;
+		return [
+			'query_string' => $this->queryString,
+			'query_source' => str_replace( '"', '', $querySource ),
+			'query_time' => $duration,
+			'from_cache' => $isFromCache
+		];
 	}
 
 	private function print_code() {
@@ -551,7 +592,13 @@ class SpecialAsk extends SpecialPage {
 		$searchInfoText = '';
 
 		if ( $borrowedMessage !== null && wfMessage( $borrowedMessage )->exists() ) {
-			$html = wfMessage( $borrowedMessage, $this->queryString )->parse();
+			$html = html::rawElement(
+				'p',
+				[
+					'class' => 'plainlinks'
+				],
+				wfMessage( $borrowedMessage, $this->queryString )->parse()
+			);
 		}
 
 		$borrowedTitle = $this->getRequest()->getVal( 'bTitle' );
@@ -615,27 +662,13 @@ class SpecialAsk extends SpecialPage {
 		return $urlArgs;
 	}
 
-	private function getQueryResult() {
+	private function fetchQueryResult( $params ) {
 
 		$res = null;
 		$debug = '';
 		$duration = 0;
 		$queryobj = null;
 		$native_result = '';
-
-		// Copy the printout to retain the original state while in case of no
-		// specific subject (THIS) request extend the query with a
-		// `PrintRequest::PRINT_THIS` column
-
-		QueryProcessor::addThisPrintout( $this->printouts, $this->parameters );
-
-		$params = QueryProcessor::getProcessedParams(
-			$this->parameters,
-			$this->printouts
-		);
-
-		$this->parameters['format'] = $params['format']->getValue();
-		$this->params = $params;
 
 		$queryobj = QueryProcessor::createQuery(
 			$this->queryString,

@@ -61,6 +61,26 @@ class DataTypeRegistryTest extends \PHPUnit_Framework_TestCase {
 		);
 	}
 
+	public function testRegisterDatatypeWithCallable() {
+
+		$callback = function() {
+			return new FooValue();
+		};
+
+		$this->dataTypeRegistry->registerDataType(
+			'_foo', $callback, DataItem::TYPE_NOTYPE, 'FooValue'
+		);
+
+		$this->assertTrue(
+			$this->dataTypeRegistry->hasDataTypeClassById( '_foo' )
+		);
+
+		$this->assertInstanceOf(
+			'\Closure',
+			$this->dataTypeRegistry->getDataTypeClassById( '_foo' )
+		);
+	}
+
 	public function testRegisterDatatype() {
 
 		$this->assertNull(
@@ -203,40 +223,6 @@ class DataTypeRegistryTest extends \PHPUnit_Framework_TestCase {
 		);
 	}
 
-	public function testExtraneousCallbackFunction() {
-
-		$lang = $this->getMockBuilder( '\SMW\Lang\Lang' )
-			->disableOriginalConstructor()
-			->getMock();
-
-		$lang->expects( $this->once() )
-			->method( 'getDatatypeLabels' )
-			->will( $this->returnValue( [] ) );
-
-		$lang->expects( $this->once() )
-			->method( 'getDatatypeAliases' )
-			->will( $this->returnValue( [] ) );
-
-		$lang->expects( $this->once() )
-			->method( 'getCanonicalDatatypeLabels' )
-			->will( $this->returnValue( [] ) );
-
-		$instance = new DataTypeRegistry( $lang );
-		$arg = 'foo';
-
-		$instance->registerExtraneousFunction(
-			'foo',
-			function ( $arg ) {
-				return 'bar' . $arg;
-			}
-		);
-
-		$this->assertInternalType(
-			'array',
-			$instance->getExtraneousFunctions()
-		);
-	}
-
 	public function testLookupByLabelIsCaseInsensitive() {
 		$caseVariants = [
 			'page',
@@ -261,6 +247,49 @@ class DataTypeRegistryTest extends \PHPUnit_Framework_TestCase {
 		$this->assertSame(
 			'_num',
 			$this->dataTypeRegistry->findTypeByLabelAndLanguage( '数值型', 'zh-Hans' )
+		);
+
+		$this->assertSame(
+			'_num',
+			$this->dataTypeRegistry->findTypeByLabelAndLanguage( 'Number', 'Foo' )
+		);
+	}
+
+	public function testFindTypeByLabelAndLanguageFromRegisteredTypeWithoutLanguageMatch() {
+
+		$lang = $this->getMockBuilder( '\SMW\Lang\Lang' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$lang->expects( $this->once() )
+			->method( 'fetch' )
+			->will( $this->returnValue( $lang ) );
+
+		$lang->expects( $this->once() )
+			->method( 'getDatatypeLabels' )
+			->will( $this->returnValue( [] ) );
+
+		$lang->expects( $this->once() )
+			->method( 'getDatatypeAliases' )
+			->will( $this->returnValue( [] ) );
+
+		$lang->expects( $this->once() )
+			->method( 'getCanonicalDatatypeLabels' )
+			->will( $this->returnValue( [] ) );
+
+		$lang->expects( $this->once() )
+			->method( 'findDatatypeByLabel' )
+			->will( $this->returnValue( '' ) );
+
+		$instance = new DataTypeRegistry(
+			$lang
+		);
+
+		$instance->registerDataType( '_foo', 'FooValue', DataItem::TYPE_NOTYPE, 'Foo' );
+
+		$this->assertSame(
+			'_foo',
+			$instance->findTypeByLabelAndLanguage( 'Foo', 'en' )
 		);
 	}
 
@@ -414,7 +443,11 @@ class DataTypeRegistryTest extends \PHPUnit_Framework_TestCase {
 		}
 	}
 
-	public function testExtensionData() {
+	public function testRegisterCallableGetCallablesByTypeId() {
+
+		$callback = function() {
+			return 'foo';
+		};
 
 		$lang = $this->getMockBuilder( '\SMW\Lang\Lang' )
 			->disableOriginalConstructor()
@@ -440,11 +473,13 @@ class DataTypeRegistryTest extends \PHPUnit_Framework_TestCase {
 			'__foo', '\SMW\Tests\FooValue', DataItem::TYPE_NOTYPE, 'FooValue'
 		);
 
-		$instance->setExtensionData( '__foo', [ 'ext.test' => 'test' ] );
+		$instance->registerCallable(
+			'__foo', 'ext.test', $callback
+		);
 
 		$this->assertEquals(
-			[ 'ext.test' => 'test' ],
-			$instance->getExtensionData( '__foo' )
+			[ 'ext.test' => $callback ],
+			$instance->getCallablesByTypeId( '__foo' )
 		);
 	}
 

@@ -41,7 +41,7 @@ class DataValueServiceFactoryTest extends \PHPUnit_Framework_TestCase {
 		);
 	}
 
-	public function testNewDataValueByType() {
+	public function testNewDataValueByTypeOrClass() {
 
 		$dataValue = $this->getMockBuilder( '\SMWDataValue' )
 			->disableOriginalConstructor()
@@ -49,14 +49,14 @@ class DataValueServiceFactoryTest extends \PHPUnit_Framework_TestCase {
 
 		$this->containerBuilder->expects( $this->once() )
 			->method( 'isRegistered' )
-			->with( $this->stringContains( DataValueServiceFactory::TYPE_INSTANCE . 'foo' ) )
+			->with( $this->stringContains( 'bar' ) )
 			->will( $this->returnValue( true ) );
 
 		$instance = new DataValueServiceFactory(
 			$this->containerBuilder
 		);
 
-		$instance->newDataValueByType( 'foo', 'bar' );
+		$instance->newDataValueByTypeOrClass( 'foo', 'bar' );
 	}
 
 	public function testGetDataValueFactory() {
@@ -140,34 +140,6 @@ class DataValueServiceFactoryTest extends \PHPUnit_Framework_TestCase {
 		$instance->getValueFormatter( $dataValue );
 	}
 
-	public function testImportExtraneousFunctions() {
-
-		$this->containerBuilder->expects( $this->atLeastOnce() )
-			->method( 'registerCallback' )
-			->with( $this->stringContains( DataValueServiceFactory::TYPE_EXT_FUNCTION . 'Foo' ) );
-
-		$instance = new DataValueServiceFactory(
-			$this->containerBuilder
-		);
-
-		$instance->importExtraneousFunctions( [
-			'Foo' => function() { return 'Foo'; }
-		] );
-	}
-
-	public function testNewExtraneousFunctionByName() {
-
-		$this->containerBuilder->expects( $this->atLeastOnce() )
-			->method( 'create' )
-			->with( $this->stringContains( DataValueServiceFactory::TYPE_EXT_FUNCTION . 'Foo' ) );
-
-		$instance = new DataValueServiceFactory(
-			$this->containerBuilder
-		);
-
-		$instance->newExtraneousFunctionByName( 'Foo' );
-	}
-
 	public function testGetPropertyRestrictionExaminer() {
 
 		$propertyRestrictionExaminer = $this->getMockBuilder( '\SMW\PropertyRestrictionExaminer' )
@@ -184,6 +156,42 @@ class DataValueServiceFactoryTest extends \PHPUnit_Framework_TestCase {
 		);
 
 		$instance->getPropertyRestrictionExaminer();
+	}
+
+	public function testGetDescriptionBuilderRegistry() {
+
+		$descriptionBuilderRegistry = $this->getMockBuilder( '\SMW\Query\DescriptionBuilderRegistry' )
+			->disableOriginalConstructor()
+			->getMockForAbstractClass();
+
+		$this->containerBuilder->expects( $this->atLeastOnce() )
+			->method( 'singleton' )
+			->with( $this->stringContains( 'DescriptionBuilderRegistry' ) )
+			->will( $this->returnValue( $descriptionBuilderRegistry ) );
+
+		$instance = new DataValueServiceFactory(
+			$this->containerBuilder
+		);
+
+		$instance->getDescriptionBuilderRegistry();
+	}
+
+	public function testGetUnitConverter() {
+
+		$unitConverter = $this->getMockBuilder( '\SMW\DataValues\Number\UnitConverter' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$this->containerBuilder->expects( $this->atLeastOnce() )
+			->method( 'singleton' )
+			->with( $this->stringContains( 'UnitConverter' ) )
+			->will( $this->returnValue( $unitConverter ) );
+
+		$instance = new DataValueServiceFactory(
+			$this->containerBuilder
+		);
+
+		$instance->getUnitConverter();
 	}
 
 }

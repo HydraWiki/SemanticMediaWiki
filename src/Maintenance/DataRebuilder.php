@@ -9,6 +9,7 @@ use Onoi\MessageReporter\MessageReporterFactory;
 use SMW\ApplicationFactory;
 use SMW\DIWikiPage;
 use SMW\MediaWiki\TitleFactory;
+use SMW\Maintenance\DataRebuilder\OutdatedDisposer;
 use SMW\Options;
 use SMW\Store;
 use Title;
@@ -25,6 +26,9 @@ use Title;
  * @author mwjames
  */
 class DataRebuilder {
+
+	const AUTO_RECOVERY_ID = 'ar_id';
+	const AUTO_RECOVERY_LAST_START = 'ar_last_start';
 
 	/**
 	 * @var Store
@@ -45,6 +49,11 @@ class DataRebuilder {
 	 * @var MessageReporter
 	 */
 	private $reporter;
+
+	/**
+	 * @var AutoRecovery
+	 */
+	private $autoRecovery;
 
 	/**
 	 * @var DistinctEntityDataRebuilder
@@ -99,6 +108,15 @@ class DataRebuilder {
 	 */
 	public function setMessageReporter( MessageReporter $reporter ) {
 		$this->reporter = $reporter;
+	}
+
+	/**
+	 * @since 3.1
+	 *
+	 * @param AutoRecovery $autoRecovery
+	 */
+	public function setAutoRecovery( AutoRecovery $autoRecovery ) {
+		$this->autoRecovery = $autoRecovery;
 	}
 
 	/**
@@ -261,7 +279,7 @@ class DataRebuilder {
 
 		// By default we expect the disposal action to take place whenever the
 		// script is run
-		$this->dispose_outdated();
+		$this->runOutdatedDisposer();
 
 		// Only expected the disposal action?
 		if ( $this->options->has( 'dispose-outdated' ) ) {
@@ -273,6 +291,24 @@ class DataRebuilder {
 		if ( !$this->options->has( 'skip-properties' ) ) {
 			$this->options->set( 'p', true );
 			$this->rebuild_selection();
+			$this->reportMessage( "\n" );
+		}
+
+		if ( $this->autoRecovery !== null && $this->autoRecovery->has( self::AUTO_RECOVERY_ID ) ) {
+			$this->start = $this->autoRecovery->get( self::AUTO_RECOVERY_ID );
+
+			$this->reportMessage( "Detecting an incomplete rebuild run ...\n"  );
+
+			if ( ( $last_start = $this->autoRecovery->get( self::AUTO_RECOVERY_LAST_START ) ) ) {
+				$this->reportMessage(
+					sprintf( "%-51s%s\n", "   ... last start recorded", $last_start )
+				);
+			}
+
+			$this->reportMessage(
+				sprintf( "%-51s%s\n", "   ... starting with", sprintf( "%s", $this->start ) )
+			);
+
 			$this->reportMessage( "\n" );
 		}
 
@@ -294,12 +330,18 @@ class DataRebuilder {
 			( $this->end ? "$this->end" : $this->entityRebuildDispatcher->getMaxId() ) . " IDs ...\n"
 		);
 
-		$this->rebuildCount = 0;
+		$this->rebuildCount = $this->start;
 		$progress = 0;
 		$estimatedProgress = 0;
 		$skipped_update = 0;
+		$current_id = 0;
+		$max = ( $this->end ? "$this->end" : $this->entityRebuildDispatcher->getMaxId() ) ;
 
 		while ( ( ( !$this->end ) || ( $id <= $this->end ) ) && ( $id > 0 ) ) {
+
+			if ( $this->autoRecovery !== null ) {
+				$this->autoRecovery->set( self::AUTO_RECOVERY_ID, (int)$id );
+			}
 
 			$current_id = $id;
 
@@ -308,9 +350,10 @@ class DataRebuilder {
 
 			if ( $this->rebuildCount % 60 === 0 ) {
 				$estimatedProgress = $this->entityRebuildDispatcher->getEstimatedProgress();
+				$max = $this->entityRebuildDispatcher->getMaxId();
 			}
 
-			$progress = round( ( $this->end - $this->start > 0 ? $this->rebuildCount / $total : $estimatedProgress ) * 100 );
+			$progress = round( ( $this->end - $this->start > 0 ? $current_id / $max : $estimatedProgress ) * 100 );
 
 			foreach ( $this->entityRebuildDispatcher->getDispatchedEntities() as $value ) {
 
@@ -329,21 +372,32 @@ class DataRebuilder {
 
 			if ( !$this->options->has( 'v' ) && $id > 0 ) {
 				$this->reportMessage(
-					"\r". sprintf( "%-50s%s", "   ... updating document no.", sprintf( "%s (%1.0f%%)", $current_id, min( 100, $progress ) ) )
+					"\r". sprintf( "%-50s%s", "   ... updating", sprintf( "%4.0f%% (%s/%s)", min( 100, $progress ), $current_id, $max ) )
 				);
 			}
 		}
 
 		if ( !$this->options->has( 'v' ) ) {
 			$this->reportMessage(
-				"\r". sprintf( "%-50s%s", "   ... updating document no.", sprintf( "%s (%1.0f%%)", $current_id, 100 ) )
+				"\r". sprintf( "%-50s%s", "   ... updating", sprintf( "%4.0f%% (%s/%s)", 100, $current_id, $max ) )
 			);
+		}
+
+		if (  $this->autoRecovery !== null ) {
+			$this->autoRecovery->set( self::AUTO_RECOVERY_ID, false );
+			$this->autoRecovery->set( self::AUTO_RECOVERY_LAST_START, false );
 		}
 
 		$this->write_to_file( $id );
 
-		$this->reportMessage( "\n   ... $this->rebuildCount IDs checked or refreshed ..." );
-		$this->reportMessage( "\n   ... $skipped_update IDs skipped ..." );
+		$this->reportMessage(
+			"\n". sprintf( "%-51s%s", "   ... IDs checked or refreshed", sprintf( "%s", $this->rebuildCount ) )
+		);
+
+		$this->reportMessage(
+			"\n". sprintf( "%-51s%s", "   ... IDs skipped", sprintf( "%s", $skipped_update ) )
+		);
+
 		$this->reportMessage( "\n   ... done.\n" );
 
 		if ( $this->options->has( 'ignore-exceptions' ) && $this->exceptionFileLogger->getExceptionCount() > 0 ) {
@@ -394,19 +448,20 @@ class DataRebuilder {
 		}
 
 		// Indicates whether this is a MW page (*) or SMW's object table
-		$text = $id . ( isset( $entities['t'] ) ? '*' : ' ' );
+		$text = $id;
 
+		$prefix = isset( $entities['t'] ) ? 'T:' : 'S:';
 		$entity = end( $entities );
 
 		if ( $entity instanceof \Title ) {
-			return [ $text, '[' . $entity->getPrefixedDBKey() .']' ];
+			return [ $text, "[$prefix " . $entity->getPrefixedDBKey() .']' ];
 		}
 
 		if ( $entity instanceof DIWikiPage ) {
-			return [ $text, '[' . $entity->getHash() .']' ];
+			return [ $text, "[$prefix " . $entity->getHash() .']' ];
 		}
 
-		return [ $text, '[' . ( is_string( $entity ) && $entity !== '' ? $entity : 'N/A' ) . ']' ];
+		return [ $text, "[$prefix " . ( is_string( $entity ) && $entity !== '' ? $entity : 'N/A' ) . ']' ];
 	}
 
 	private function performFullDelete() {
@@ -453,44 +508,18 @@ class DataRebuilder {
 		return true;
 	}
 
-	private function dispose_outdated() {
+	private function runOutdatedDisposer() {
 
 		$applicationFactory = ApplicationFactory::getInstance();
-		$entityIdDisposerJob = $applicationFactory->newJobFactory()->newEntityIdDisposerJob(
-			Title::newFromText( __METHOD__ )
+		$title = Title::newFromText( __METHOD__ );
+
+		$outdatedDisposer = new OutdatedDisposer(
+			$applicationFactory->newJobFactory()->newEntityIdDisposerJob( $title ),
+			$applicationFactory->getIteratorFactory()
 		);
 
-		$outdatedEntitiesResultIterator = $entityIdDisposerJob->newOutdatedEntitiesResultIterator();
-		$matchesCount = $outdatedEntitiesResultIterator->count();
-		$counter = 0;
-
-		$this->reportMessage( "Removing outdated entities ..." );
-
-		if ( $matchesCount > 0 ) {
-			$this->reportMessage( "\n" );
-
-			$chunkedIterator = $applicationFactory->getIteratorFactory()->newChunkedIterator(
-				$outdatedEntitiesResultIterator,
-				200
-			);
-
-			foreach ( $chunkedIterator as $chunk ) {
-				foreach ( $chunk as $row ) {
-					$counter++;
-					$msg = sprintf( "%s (%1.0f%%)", $row->smw_id, round( $counter / $matchesCount * 100 ) );
-
-					$this->reportMessage(
-						"\r". sprintf( "%-50s%s", "   ... cleaning up document no.", $msg )
-					);
-
-					$entityIdDisposerJob->dispose( $row );
-				}
-			}
-
-			$this->reportMessage( "\n   ... {$matchesCount} IDs removed ..." );
-		}
-
-		$this->reportMessage( "\n   ... done.\n" );
+		$outdatedDisposer->setMessageReporter( $this->reporter );
+		$outdatedDisposer->run();
 	}
 
 	private function is_writable( $startIdFile ) {
@@ -516,6 +545,10 @@ class DataRebuilder {
 
 		if ( $options->has( 'categories' ) ) {
 			$this->filters[] = NS_CATEGORY;
+		}
+
+		if ( $options->has( 'namespace' ) ) {
+			$this->filters[] = constant( $options->get( 'namespace' ) );
 		}
 
 		if ( $options->has( 'p' ) ) {

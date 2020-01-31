@@ -24,6 +24,8 @@ class RemoveDuplicateEntities extends \Maintenance {
 	public function __construct() {
 		$this->mDescription = 'Remove duplicate entities without active references.';
 		$this->addOption( 's', 'ID starting point', false, true );
+		$this->addOption( 'report-runtime', 'Report execution time and memory usage', false );
+		$this->addOption( 'with-maintenance-log', 'Add log entry to `Special:Log` about the maintenance run.', false );
 
 		parent::__construct();
 	}
@@ -54,13 +56,16 @@ class RemoveDuplicateEntities extends \Maintenance {
 
 		$this->reportMessage(
 			"\nThe script will only dispose of those duplicate entities that have no active\n" .
-			"references. The log section 'untouched' contains IDs that have not been\n" .
-			"removed and the user is asked to verify the content and manually remove\n".
-			"those listed entities.\n\n"
+			"references.\n"
 		);
+
+		$this->reportMessage( "\nQuering registered tables ...\n" );
 
 		$applicationFactory = ApplicationFactory::getInstance();
 		$maintenanceFactory = $applicationFactory->newMaintenanceFactory();
+
+		$maintenanceHelper = $maintenanceFactory->newMaintenanceHelper();
+		$maintenanceHelper->initRuntimeValues();
 
 		$duplicateEntitiesDisposer = $maintenanceFactory->newDuplicateEntitiesDisposer(
 			$applicationFactory->getStore( 'SMW\SQLStore\SQLStore' ),
@@ -69,6 +74,23 @@ class RemoveDuplicateEntities extends \Maintenance {
 
 		$duplicateEntityRecords = $duplicateEntitiesDisposer->findDuplicates();
 		$duplicateEntitiesDisposer->verifyAndDispose( $duplicateEntityRecords );
+
+		if ( $this->hasOption( 'report-runtime' ) ) {
+			$this->reportMessage( "\n" . "Runtime report ..." . "\n" );
+			$this->reportMessage( $maintenanceHelper->getFormattedRuntimeValues( '   ...' ) . "\n" );
+		}
+
+		if ( $this->hasOption( 'with-maintenance-log' ) ) {
+			$maintenanceLogger = $maintenanceFactory->newMaintenanceLogger( 'RemoveDuplicateEntitiesLogger' );
+			$runtimeValues = $maintenanceHelper->getRuntimeValues();
+
+			$log = [
+				'Memory used' => $runtimeValues['memory-used'],
+				'Time used' => $runtimeValues['humanreadable-time']
+			];
+
+			$maintenanceLogger->logFromArray( $log );
+		}
 
 		return true;
 	}

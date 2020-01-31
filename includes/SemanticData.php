@@ -4,6 +4,7 @@ namespace SMW;
 
 use MWException;
 use SMW\DataModel\SubSemanticData;
+use SMW\DataModel\SequenceMap;
 use SMW\Exception\SemanticDataImportException;
 use SMWContainerSemanticData;
 use SMWDataItem;
@@ -35,6 +36,11 @@ class SemanticData {
 	 * have been fetched from cache.
 	 */
 	const OPT_LAST_MODIFIED = 'opt.last.modified';
+
+	/**
+	 * @see $smwgCheckForRemnantEntities
+	 */
+	const OPT_CHECK_REMNANT_ENTITIES = 'opt.check.remnant.entities';
 
 	/**
 	 * Identifies that a data block was created by a user.
@@ -128,16 +134,6 @@ class SemanticData {
 	protected $subSemanticData;
 
 	/**
-	 * Internal flag that indicates if this semantic data will accept
-	 * subdata. Semantic data objects that are subdata already do not allow
-	 * (second level) subdata to be added. This ensures that all data is
-	 * collected on the top level, and in particular that there is only one
-	 * way to represent the same data with subdata. This is also useful for
-	 * diff computation.
-	 */
-	protected $subDataAllowed = true;
-
-	/**
 	 * @var array
 	 */
 	protected $errors = [];
@@ -160,6 +156,11 @@ class SemanticData {
 	 * @var array
 	 */
 	protected $extensionData = [];
+
+	/**
+	 * @var array
+	 */
+	protected $sequenceMap = [];
 
 	/**
 	 * This is kept public to keep track of the depth during a recursive processing
@@ -196,7 +197,16 @@ class SemanticData {
 	 * @return array
 	 */
 	public function __sleep() {
-		return [ 'mSubject', 'mPropVals', 'mProperties', 'subSemanticData', 'mHasVisibleProps', 'mHasVisibleSpecs', 'options', 'extensionData' ];
+		return [ 'mSubject', 'mPropVals', 'mProperties', 'subSemanticData', 'mHasVisibleProps', 'mHasVisibleSpecs', 'options', 'extensionData', 'sequenceMap' ];
+	}
+
+	/**
+	 * @since 3.2
+	 *
+	 * @return boolean
+	 */
+	public function isStub() : bool {
+		return false;
 	}
 
 	/**
@@ -206,6 +216,17 @@ class SemanticData {
 	 */
 	public function getSubject() {
 		return $this->mSubject;
+	}
+
+	/**
+	 * Returns a hashed value map
+	 *
+	 * @since 3.1
+	 *
+	 * @return []
+	 */
+	public function getSequenceMap() {
+		return $this->sequenceMap;
 	}
 
 	/**
@@ -447,10 +468,24 @@ class SemanticData {
 		if ( !array_key_exists( $property->getKey(), $this->mPropVals ) ) {
 			$this->mPropVals[$property->getKey()] = [];
 			$this->mProperties[$property->getKey()] = $property;
+
+			if ( SequenceMap::canMap( $property ) ) {
+				$this->sequenceMap[$property->getKey()] = [];
+			}
+		}
+
+		$hash = md5( $dataItem->getHash() );
+
+		// Only store a map for values that are allowed to
+		if (
+			$this->mNoDuplicates &&
+			isset( $this->sequenceMap[$property->getKey()] ) &&
+			!isset( $this->mPropVals[$property->getKey()][$hash] ) ) {
+			$this->sequenceMap[$property->getKey()][] = $hash;
 		}
 
 		if ( $this->mNoDuplicates ) {
-			$this->mPropVals[$property->getKey()][$dataItem->getHash()] = $dataItem;
+			$this->mPropVals[$property->getKey()][$hash] = $dataItem;
 		} else {
 			$this->mPropVals[$property->getKey()][] = $dataItem;
 		}
@@ -573,13 +608,15 @@ class SemanticData {
 			return;
 		}
 
-		if ( !array_key_exists( $property->getKey(), $this->mPropVals ) || !array_key_exists( $property->getKey(), $this->mProperties ) ) {
+		if (
+			!array_key_exists( $property->getKey(), $this->mPropVals ) ||
+			!array_key_exists( $property->getKey(), $this->mProperties ) ) {
 			return;
 		}
 
 		if ( $this->mNoDuplicates ) {
 			//this didn't get checked for my tests, but should work
-			unset( $this->mPropVals[$property->getKey()][$dataItem->getHash()] );
+			unset( $this->mPropVals[$property->getKey()][md5( $dataItem->getHash() )] );
 		} else {
 			foreach( $this->mPropVals[$property->getKey()] as $index => $di ) {
 				if( $di->equals( $dataItem ) ) {
@@ -619,14 +656,7 @@ class SemanticData {
 		// Find and remove associated assignments (e.g. _ASK as subobject
 		// contains _ASKSI ...)
 		foreach ( $this->mPropVals[$key] as $dataItem ) {
-
-			if ( !$dataItem instanceof DIWikiPage || $dataItem->getSubobjectName() === '' ) {
-				continue;
-			}
-
-			if ( ( $subSemanticData = $this->findSubSemanticData( $dataItem->getSubobjectName() ) ) !== null ) {
-				$this->removeSubSemanticData( $subSemanticData );
-			}
+			$this->removePropertyObjectValue( $property, $dataItem );
 		}
 
 		unset( $this->mPropVals[$key] );
@@ -683,11 +713,26 @@ class SemanticData {
 		// more duplicate elimination:
 		if ( count( $this->mProperties ) == 0 &&
 		     ( $semanticData->mNoDuplicates >= $this->mNoDuplicates ) ) {
+
 			$this->mProperties = $semanticData->getProperties();
+			$this->sequenceMap = $semanticData->getSequenceMap();
 			$this->mPropVals = [];
 
 			foreach ( $this->mProperties as $property ) {
-				$this->mPropVals[$property->getKey()] = $semanticData->getPropertyValues( $property );
+				$key = $property->getKey();
+				$this->mPropVals[$key] = $semanticData->getPropertyValues( $property );
+
+				if ( isset( $this->sequenceMap[$key] ) && SequenceMap::canMap( $property ) ) {
+					$sequenceMap = array_flip( $this->sequenceMap[$key] );
+
+					usort ( $this->mPropVals[$key], function( $a, $b ) use( $sequenceMap ) {
+
+						$pos_a = $sequenceMap[md5( $a->getHash() )];
+						$pos_b = $sequenceMap[md5( $b->getHash() )];
+
+						return ( $pos_a < $pos_b ) ? -1 : 1;
+					} );
+				}
 			}
 
 			$this->mHasVisibleProps = $semanticData->hasVisibleProperties();
@@ -702,8 +747,17 @@ class SemanticData {
 			}
 		}
 
-		foreach( $semanticData->getSubSemanticData() as $semData ) {
-			$this->addSubSemanticData( $semData );
+		// Postpone the import and avoid resolving `SubSemanticData` for
+		// a `StubSemanticData` objects that would otherwise create the entire
+		// object graph recursively even though it might not be necessary as in
+		// case when retrieving data via `Special:Browse`
+		//
+		// Subobject references are part of the value representation and assigned
+		// to the relevant property which may be resolved at a later point
+		if ( !$semanticData->isStub() ) {
+			foreach( $semanticData->getSubSemanticData() as $subSemanticData ) {
+				$this->addSubSemanticData( $subSemanticData );
+			}
 		}
 	}
 

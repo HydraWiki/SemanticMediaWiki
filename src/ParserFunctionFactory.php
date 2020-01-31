@@ -118,6 +118,10 @@ class ParserFunctionFactory {
 			$parserData->setOption( $parserData::NO_QUERY_DEPENDENCY_TRACE, $parser->getOptions()->smwAskNoDependencyTracking );
 		}
 
+		if ( $parserData->hasAnnotationBlock() ) {
+			$parserData->setOption( $parserData::NO_QUERY_DEPENDENCY_TRACE, true );
+		}
+
 		// Avoid possible actions during for example stashedit etc.
 		$parserData->setOption( 'request.action', $GLOBALS['wgRequest']->getVal( 'action' ) );
 
@@ -149,7 +153,7 @@ class ParserFunctionFactory {
 		);
 
 		$askParserFunction->setPostProcHandler(
-			$applicationFactory->create( 'PostProcHandler', $parser->getOutput() )
+			$applicationFactory->newPostProcHandler( $parser->getOutput() )
 		);
 
 		$askParserFunction->setRecursiveTextProcessor(
@@ -168,8 +172,18 @@ class ParserFunctionFactory {
 	 */
 	public function newShowParserFunction( Parser $parser ) {
 
+		$settings = ApplicationFactory::getInstance()->getSettings();
+
+		$askParserFunction = $this->newAskParserFunction(
+			$parser
+		);
+
+		$askParserFunction->setCurtailmentMode(
+			$settings->isFlagSet( 'smwgExperimentalFeatures', SMW_SHOWPARSER_USE_CURTAILMENT )
+		);
+
 		$showParserFunction = new ShowParserFunction(
-			$this->newAskParserFunction( $parser )
+			$askParserFunction
 		);
 
 		return $showParserFunction;
@@ -240,7 +254,7 @@ class ParserFunctionFactory {
 		);
 
 		$conceptParserFunction->setPostProcHandler(
-			$applicationFactory->create( 'PostProcHandler', $parser->getOutput() )
+			$applicationFactory->newPostProcHandler( $parser->getOutput() )
 		);
 
 		return $conceptParserFunction;
@@ -316,22 +330,25 @@ class ParserFunctionFactory {
 			$parser->getTargetLanguage()
 		);
 
+		$recurringEvents = new RecurringEvents();
+
+		$recurringEvents->setDefaultNumRecurringEvents(
+			$settings->get( 'smwgDefaultNumRecurringEvents' )
+		);
+
+		$recurringEvents->setMaxNumRecurringEvents(
+			$settings->get( 'smwgMaxNumRecurringEvents' )
+		);
+
 		$recurringEventsParserFunction = new RecurringEventsParserFunc(
 			$parserData,
 			$subobject,
-			$messageFormatter
+			$messageFormatter,
+			$recurringEvents
 		);
 
 		$recurringEventsParserFunction->isCapitalLinks(
 			Site::isCapitalLinks()
-		);
-
-		$recurringEventsParserFunction->setDefaultNumRecurringEvents(
-			$settings->get( 'smwgDefaultNumRecurringEvents' )
-		);
-
-		$recurringEventsParserFunction->setMaxNumRecurringEvents(
-			$settings->get( 'smwgMaxNumRecurringEvents' )
 		);
 
 		$recurringEventsParserFunction->isComparableContent(

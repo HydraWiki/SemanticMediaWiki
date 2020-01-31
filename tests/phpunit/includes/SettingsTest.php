@@ -73,6 +73,32 @@ class SettingsTest extends \PHPUnit_Framework_TestCase {
 		);
 	}
 
+	public function testRegisterChangeListener() {
+
+		$changeListener = $this->getMockBuilder( '\SMW\Listener\ChangeListener\ChangeListener' )
+			->disableOriginalConstructor()
+			->getMock();
+
+		$changeListener->expects( $this->once() )
+			->method( 'canTrigger' )
+			->with( $this->equalTo( 'Foo' ) )
+			->will( $this->returnValue( true ) );
+
+		$changeListener->expects( $this->once() )
+			->method( 'setAttrs' )
+			->with( $this->equalTo( [ 'Foo' => 'Bar' ] ) );
+
+		$changeListener->expects( $this->once() )
+			->method( 'trigger' )
+			->with( $this->equalTo( 'Foo' ) );
+
+		$instance = Settings::newFromArray( [] );
+		$instance->registerChangeListener( $changeListener );
+
+		$instance->set( 'Foo', 'Bar' );
+		$instance->clearChangeListeners();
+	}
+
 	/**
 	 * @dataProvider settingsProvider
 	 */
@@ -91,7 +117,7 @@ class SettingsTest extends \PHPUnit_Framework_TestCase {
 	/**
 	 * @dataProvider globalsSettingsProvider
 	 */
-	public function testNewFromGlobals( array $settings ) {
+	public function testNewFromGlobals( $setting ) {
 
 		$instance = Settings::newFromGlobals();
 
@@ -104,50 +130,11 @@ class SettingsTest extends \PHPUnit_Framework_TestCase {
 		$instance->clear();
 		$this->assertTrue( $instance !== Settings::newFromGlobals() );
 
-		foreach ( $settings as $key => $value ) {
-			$this->assertTrue( $instance->has( $key ), "Failed asserting that {$key} exists" );
-		}
-	}
-
-	/**
-	 * @dataProvider nestedSettingsProvider
-	 */
-	public function testNestedSettingsIteration( $test, $key, $expected ) {
-
-		$instance = Settings::newFromArray( $test );
-
-		$this->assertInternalType( $expected['type'], $instance->get( $key ) );
-		$this->assertEquals( $expected['value'], $instance->get( $key ) );
-	}
-
-	/**
-	 * @return array
-	 */
-	public function nestedSettingsProvider() {
-
-		$testEnvironment = new TestEnvironment();
-		$utilityFactory = $testEnvironment->getUtilityFactory();
-
-		$Foo  = $utilityFactory->createRandomString();
-		$Lula = $utilityFactory->createRandomString();
-		$Lala = $utilityFactory->createRandomString();
-
-		$child  = [ 'Lisa', 'Lula', [ 'Lila' ] ];
-		$parent = [ 'child' => $child ];
-
-		$Lila = [ 'Lala' => $Lala, 'parent' => $parent ];
-		$Bar  = [ 'Lula' => $Lula, 'Lila'   => $Lila ];
-		$test = [ 'Foo'  => $Foo,  'Bar'    => $Bar ];
-
-		return [
-			[ $test, 'Foo',    [ 'type' => 'string', 'value' => $Foo ] ],
-			[ $test, 'Bar',    [ 'type' => 'array',  'value' => $Bar ] ],
-			[ $test, 'Lula',   [ 'type' => 'string', 'value' => $Lula ] ],
-			[ $test, 'Lila',   [ 'type' => 'array',  'value' => $Lila ] ],
-			[ $test, 'Lala',   [ 'type' => 'string', 'value' => $Lala ] ],
-			[ $test, 'parent', [ 'type' => 'array',  'value' => $parent ] ],
-			[ $test, 'child',  [ 'type' => 'array',  'value' => $child ] ]
-		];
+		$this->assertTrue(
+			$instance->has( $setting ),
+			"Failed asserting that `{$setting}` exists. It could be that `{$setting}`\n" .
+			"is invoked by the `LocalSettings.php` or some parameter is using the `smwg` prefix.\n"
+		);
 	}
 
 	/**
@@ -178,7 +165,9 @@ class SettingsTest extends \PHPUnit_Framework_TestCase {
 
 		unset( $settings['smwgDeprecationNotices'] );
 
-		return [ [ $settings ] ];
+		foreach ( $settings as $key => $value ) {
+			yield [ $key ];
+		}
 	}
 
 }
